@@ -1,0 +1,1673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Irancell — PM Batch Validator</title>
+  <script src="./js/pdf.min.js">
+</script>
+  <script>if(typeof pdfjsLib!=='undefined')pdfjsLib.GlobalWorkerOptions.workerSrc="./js/pdf.worker.min.js";
+</script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    :root{
+      --gold:#FFCC00;--gold-dark:#7a5800;--gold-mid:#FFD700;--gold-light:#FFF3B0;
+      --white:#fff;--red:#dc3545;--red-bg:#fff0f0;--green:#1a9e55;--green-bg:#f0fff4;
+      --gray:#718096;--border:#e2e8f0;--surface:#f7f8fa;
+      --font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace;
+    }
+    body{font-family:var(--font);background:var(--surface);min-height:100vh;}
+
+    /* ══ AUTH SCREEN ══ */
+    #authScreen{
+      min-height:100vh;display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(135deg,#0a0a0a 0%,#1a1a2e 50%,#16213e 100%);
+      padding:20px;position:relative;overflow:hidden;
+    }
+    #authScreen::before{
+      content:'';position:absolute;inset:0;
+      background:repeating-linear-gradient(0deg,transparent,transparent 40px,rgba(255,204,0,.03) 40px,rgba(255,204,0,.03) 41px),
+                 repeating-linear-gradient(90deg,transparent,transparent 40px,rgba(255,204,0,.03) 40px,rgba(255,204,0,.03) 41px);
+    }
+    .auth-card{
+      background:rgba(255,255,255,.04);backdrop-filter:blur(20px);
+      border:0.5px solid rgba(255,204,0,.2);border-radius:20px;
+      padding:44px 40px;width:100%;max-width:420px;position:relative;z-index:1;
+    }
+    .auth-logo{text-align:center;margin-bottom:32px;}
+    .auth-logo-icon{
+      width:56px;height:56px;background:var(--gold);border-radius:14px;
+      display:inline-flex;align-items:center;justify-content:center;
+      font-size:26px;margin-bottom:14px;
+    }
+    .auth-logo h1{font-size:22px;font-weight:600;color:#fff;letter-spacing:-.02em;}
+    .auth-logo p{font-size:12px;color:rgba(255,255,255,.45);margin-top:4px;font-family:var(--mono);}
+    .auth-tabs{display:flex;background:rgba(255,255,255,.06);border-radius:10px;padding:4px;margin-bottom:28px;}
+    .auth-tab{
+      flex:1;padding:9px;text-align:center;font-size:13px;font-weight:500;
+      border-radius:7px;cursor:pointer;color:rgba(255,255,255,.5);border:none;
+      background:transparent;transition:all .2s;
+    }
+    .auth-tab.active{background:rgba(255,204,0,.15);color:var(--gold);border:0.5px solid rgba(255,204,0,.3);}
+    .auth-field{margin-bottom:16px;}
+    .auth-label{display:block;font-size:11px;font-weight:500;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;font-family:var(--mono);}
+    .auth-input{
+      width:100%;padding:11px 14px;background:rgba(255,255,255,.07);
+      border:0.5px solid rgba(255,255,255,.15);border-radius:9px;
+      font-size:14px;color:#fff;font-family:var(--font);outline:none;
+      transition:border-color .2s;
+    }
+    .auth-input:focus{border-color:rgba(255,204,0,.5);}
+    .auth-input::placeholder{color:rgba(255,255,255,.25);}
+    .auth-btn{
+      width:100%;padding:13px;background:var(--gold);border:none;border-radius:9px;
+      font-size:14px;font-weight:600;color:#1a1200;cursor:pointer;
+      transition:all .2s;margin-top:8px;font-family:var(--font);
+    }
+    .auth-btn:hover{background:var(--gold-mid);transform:translateY(-1px);}
+    .auth-btn:active{transform:translateY(0);}
+    .auth-error{
+      background:rgba(220,53,69,.15);border:0.5px solid rgba(220,53,69,.4);
+      border-radius:8px;padding:10px 14px;font-size:12px;color:#ff8899;
+      margin-bottom:16px;display:none;
+    }
+    .auth-error.show{display:block;}
+    .auth-footer{text-align:center;margin-top:20px;font-size:11px;color:rgba(255,255,255,.25);}
+
+    /* ══ APP SHELL ══ */
+    #appShell{display:none;}
+    #appShell.visible{display:block;}
+
+    /* ══ TOP NAV ══ */
+    .topnav{
+      background:#fff;border-bottom:0.5px solid var(--border);
+      display:flex;align-items:center;justify-content:space-between;
+      padding:0 24px;height:54px;position:sticky;top:0;z-index:50;
+    }
+    .topnav-logo{display:flex;align-items:center;gap:10px;}
+    .topnav-logo-icon{width:32px;height:32px;background:var(--gold);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;}
+    .topnav-logo h1{font-size:14px;font-weight:600;color:#1a1a1a;}
+    .topnav-logo p{font-size:10px;color:var(--gray);font-family:var(--mono);}
+    .topnav-right{display:flex;align-items:center;gap:10px;}
+    .user-pill{
+      display:flex;align-items:center;gap:8px;padding:6px 12px;
+      background:var(--surface);border:0.5px solid var(--border);border-radius:99px;
+      font-size:12px;font-weight:500;color:#1a1a1a;
+    }
+    .user-avatar{
+      width:24px;height:24px;border-radius:50%;background:var(--gold);
+      display:flex;align-items:center;justify-content:center;
+      font-size:10px;font-weight:700;color:#1a1200;
+    }
+    .btn-signout{
+      padding:7px 14px;background:#fff;border:0.5px solid var(--border);border-radius:8px;
+      font-size:12px;font-weight:500;color:var(--gray);cursor:pointer;
+    }
+    .btn-signout:hover{background:var(--surface);color:var(--red);}
+
+    /* ══ SUB NAV ══ */
+    .subnav{
+      background:#fff;border-bottom:0.5px solid var(--border);
+      display:flex;align-items:center;gap:2px;padding:0 24px;
+    }
+    .subnav-tab{
+      padding:10px 14px;font-size:12px;font-weight:500;color:var(--gray);
+      border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;
+      transition:all .15s;margin-bottom:-0.5px;
+    }
+    .subnav-tab.active{color:#1a1a1a;border-bottom-color:var(--gold);}
+
+    /* ══ MAIN CONTENT ══ */
+    .main-pad{padding:24px 24px;max-width:1140px;margin:0 auto;}
+
+    /* ══ HISTORY PANEL ══ */
+    .history-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+    .history-header h2{font-size:15px;font-weight:600;color:#1a1a1a;}
+    .history-empty{
+      text-align:center;padding:60px 20px;color:var(--gray);
+      background:#fff;border:0.5px solid var(--border);border-radius:12px;
+    }
+    .history-empty p{font-size:13px;margin-top:8px;}
+    .history-grid{display:grid;gap:10px;}
+    .history-card{
+      background:#fff;border:0.5px solid var(--border);border-radius:12px;
+      padding:16px 20px;display:flex;align-items:center;gap:16px;cursor:pointer;
+      transition:border-color .15s;
+    }
+    .history-card:hover{border-color:var(--gold);}
+    .hcard-icon{
+      width:40px;height:40px;background:var(--surface);border-radius:10px;
+      display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;
+    }
+    .hcard-body{flex:1;min-width:0;}
+    .hcard-title{font-size:13px;font-weight:600;color:#1a1a1a;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .hcard-meta{font-size:11px;color:var(--gray);margin-top:2px;}
+    .hcard-right{text-align:right;flex-shrink:0;}
+    .hcard-pct{font-size:18px;font-weight:600;}
+    .hcard-pct.high{color:var(--green);}
+    .hcard-pct.mid{color:#d4a017;}
+    .hcard-pct.low{color:var(--red);}
+    .hcard-lbl{font-size:10px;color:var(--gray);text-transform:uppercase;}
+    .hcard-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;margin-top:4px;}
+    .hb-valid{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
+    .hb-invalid{background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
+    .btn-delete{
+      padding:6px 10px;background:transparent;border:0.5px solid transparent;
+      border-radius:7px;font-size:11px;color:var(--gray);cursor:pointer;
+    }
+    .btn-delete:hover{border-color:var(--red);color:var(--red);background:var(--red-bg);}
+
+    /* ══ VALIDATOR (reuse from original) ══ */
+    .dir-card{background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:18px 22px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+    .dir-path{flex:1;font-size:13px;color:#1a1a1a;padding:8px 12px;background:var(--surface);border:0.5px solid var(--border);border-radius:8px;min-width:200px;word-break:break-all;font-family:var(--mono);}
+    .dir-path.empty{color:var(--gray);}
+    .btn-pick{padding:9px 18px;background:var(--gold);border:none;border-radius:8px;font-size:13px;font-weight:600;color:#333;cursor:pointer;white-space:nowrap;}
+    .btn-pick:hover{background:var(--gold-mid);}
+    .btn-run{padding:9px 18px;background:#1a9e55;border:none;border-radius:8px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;white-space:nowrap;}
+    .btn-run:disabled{background:#ccc;cursor:not-allowed;color:#888;}
+    .summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+    .stat-card{background:var(--white);border:0.5px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center;}
+    .stat-num{font-size:20px;font-weight:600;color:#1a1a1a;}
+    .stat-num.gold{color:var(--gold-dark);}
+    .stat-num.green{color:var(--green);}
+    .stat-num.red{color:var(--red);}
+    .stat-lbl{font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;font-family:var(--mono);}
+    .table-wrap{background:var(--white);border:0.5px solid var(--border);border-radius:12px;overflow:hidden;}
+    .jobs-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;}
+    .jobs-table th{background:var(--surface);padding:10px 14px;text-align:left;font-weight:500;color:var(--gray);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border);}
+    .jobs-table td{padding:11px 14px;border-bottom:0.5px solid var(--border);vertical-align:middle;color:#2d3748;}
+    .jobs-table tr:last-child td{border-bottom:none;}
+    th.col-id,td.col-id{width:160px;}
+    th.col-task,td.col-task{width:220px;}
+    th.col-bar,td.col-bar{width:auto;}
+    th.col-pct,td.col-pct{width:100px;text-align:center;}
+    th.col-act,td.col-act{width:120px;text-align:center;}
+    th.col-ctl,td.col-ctl{width:90px;text-align:center;}
+    th.col-ctl,td.col-ctl{width:90px;text-align:center;}
+    .btn-job-run{padding:5px 10px;background:#e8f5ee;border:0.5px solid #b8e6cc;border-radius:6px;font-size:11px;font-weight:600;color:#1a7a45;cursor:pointer;white-space:nowrap;}
+    .btn-job-run:hover{background:#d0eddc;}
+    .btn-job-run:disabled{background:#f0f0f0;border-color:#ddd;color:#aaa;cursor:not-allowed;}
+    .bar-wrap{display:flex;align-items:center;gap:8px;}
+    .bar-track{flex:1;height:7px;background:#eee;border-radius:99px;overflow:hidden;}
+    .bar-fill{height:100%;border-radius:99px;background:var(--gold);transition:width .35s ease;}
+    .bar-fill.done{background:var(--green);}
+    .bar-fill.error{background:var(--red);}
+    .bar-label{font-size:11px;color:var(--gray);white-space:nowrap;min-width:120px;font-family:var(--mono);}
+    .pct-cell{font-size:15px;font-weight:600;}
+    .pct-cell.high{color:var(--green);}
+    .pct-cell.mid{color:#d4a017;}
+    .pct-cell.low{color:var(--red);}
+    .pct-cell.na{color:var(--gray);}
+    .btn-view{padding:7px 14px;background:var(--white);border:0.5px solid var(--border);border-radius:7px;font-size:12px;font-weight:500;color:#333;cursor:pointer;}
+    .btn-view:hover{background:var(--surface);}
+    .btn-view.ready{background:#f0fff4;border-color:#b8e6cc;color:#1a7a45;font-weight:600;}
+    .header-info-box{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:18px;padding:14px;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;}
+    .hinfo-item{display:flex;flex-direction:column;}
+    .hinfo-label{font-size:10px;color:var(--gray);text-transform:uppercase;margin-bottom:3px;letter-spacing:.04em;font-family:var(--mono);}
+    .hinfo-value{font-size:13px;color:#1a1a1a;font-weight:500;word-break:break-word;font-family:var(--mono);}
+    .empty-state{text-align:center;padding:60px 20px;color:var(--gray);}
+    .empty-state p{font-size:14px;margin-top:8px;}
+
+    /* ══ MODAL ══ */
+    .page-wrap{position:relative;}
+    .modal-overlay{display:none;position:absolute;top:0;left:0;right:0;min-height:100%;background:rgba(0,0,0,.45);z-index:100;padding:28px 16px;}
+    .modal-overlay.open{display:flex;align-items:flex-start;justify-content:center;}
+    .modal-box{background:var(--white);border-radius:14px;border:0.5px solid var(--border);width:100%;max-width:980px;overflow:hidden;}
+    .modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:0.5px solid var(--border);}
+    .modal-header h2{font-size:15px;font-weight:600;color:#1a1a1a;font-family:var(--mono);}
+    .modal-close{padding:6px 12px;background:var(--surface);border:0.5px solid var(--border);border-radius:7px;font-size:13px;cursor:pointer;color:#333;}
+    .modal-body{padding:22px;overflow-x:auto;}
+    .verdict-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:99px;font-size:12px;font-weight:600;}
+    .vb-valid{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
+    .vb-invalid{background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
+    .modal-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;}
+    .mstat{background:var(--surface);border-radius:9px;padding:12px;text-align:center;}
+    .mstat-num{font-size:18px;font-weight:600;color:#1a1a1a;}
+    .mstat-num.gold{color:var(--gold-dark);}
+    .mstat-num.green{color:var(--green);}
+    .mstat-num.red{color:var(--red);}
+    .mstat-lbl{font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;font-family:var(--mono);}
+    .res-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;}
+    .res-table th{background:var(--surface);padding:9px 10px;text-align:left;font-weight:500;color:var(--gray);font-size:10px;text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border);}
+    .res-table td{padding:9px 10px;border-bottom:0.5px solid var(--border);vertical-align:top;color:#2d3748;}
+    .res-table tr:last-child td{border-bottom:none;}
+    .res-table th:nth-child(1),.res-table td:nth-child(1){width:36px;}
+    .res-table th:nth-child(3),.res-table td:nth-child(3){width:120px;}
+    .res-table th:nth-child(4),.res-table td:nth-child(4){width:90px;}
+    .res-table th:nth-child(5),.res-table td:nth-child(5){width:120px;}
+    .res-table th:nth-child(6),.res-table td:nth-child(6){width:90px;}
+    .res-table th:nth-child(7),.res-table td:nth-child(7){width:110px;}
+    .vbadge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:99px;font-size:10px;font-weight:600;}
+    .vb-confirmed{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
+    .vb-disputed{background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
+    .vb-no-ev{background:var(--surface);color:var(--gray);border:0.5px solid var(--border);}
+    .cause-tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;margin:1px;background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
+    .meta-pill{display:inline-block;font-size:10px;padding:1px 7px;border-radius:99px;margin:1px;font-weight:600;}
+    .meta-ok{background:var(--green-bg);color:#1a7a45;}
+    .meta-fail{background:var(--red-bg);color:#8b0000;}
+    .meta-na{background:var(--surface);color:var(--gray);}
+
+    /* ══ TOAST ══ */
+    .toast{
+      position:fixed;bottom:24px;right:24px;z-index:9999;
+      background:#1a1a1a;color:#fff;padding:12px 20px;border-radius:10px;
+      font-size:13px;font-weight:500;
+      transform:translateY(80px);opacity:0;transition:all .3s;pointer-events:none;
+    }
+    .toast.show{transform:translateY(0);opacity:1;}
+
+    /* ══ LIGHTBOX ══ */
+    .lb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;align-items:center;justify-content:center;flex-direction:column;}
+    .lb-overlay.open{display:flex;}
+    .lb-img-wrap{position:relative;max-width:90vw;max-height:80vh;display:flex;align-items:center;justify-content:center;}
+    .lb-img{max-width:90vw;max-height:80vh;border-radius:8px;object-fit:contain;display:block;}
+    .lb-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:0.5px solid rgba(255,255,255,.3);color:#fff;width:44px;height:44px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s;}
+    .lb-btn:hover{background:rgba(255,255,255,.3);}
+    .lb-prev{left:-60px;}
+    .lb-next{right:-60px;}
+    .lb-close{position:fixed;top:20px;right:20px;background:rgba(255,255,255,.15);border:0.5px solid rgba(255,255,255,.3);color:#fff;width:40px;height:40px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+    .lb-close:hover{background:rgba(255,255,255,.3);}
+    .lb-counter{color:rgba(255,255,255,.6);font-size:12px;margin-top:12px;font-family:var(--mono);}
+    .lb-filename{color:rgba(255,255,255,.4);font-size:11px;margin-top:4px;font-family:var(--mono);}
+    .thumb-img{width:48px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;border:1.5px solid transparent;transition:border-color .15s,transform .15s;flex-shrink:0;}
+    .thumb-img:hover{border-color:var(--gold);transform:scale(1.08);}
+
+    /* ══ DASHBOARD ══ */
+    .db-kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;}
+    .db-kpi{background:#fff;border:0.5px solid var(--border);border-radius:10px;padding:16px;text-align:center;}
+    .db-kpi-num{font-size:22px;font-weight:700;color:#1a1a1a;}
+    .db-kpi-num.green{color:var(--green);}
+    .db-kpi-num.red{color:var(--red);}
+    .db-kpi-num.gold{color:var(--gold-dark);}
+    .db-kpi-lbl{font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-top:4px;font-family:var(--mono);}
+    .db-filter-bar{display:flex;flex-wrap:wrap;gap:10px;background:#fff;border:0.5px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px;}
+    .db-filter-group{display:flex;flex-direction:column;gap:4px;min-width:130px;}
+    .db-filter-label{font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;font-family:var(--mono);}
+    .db-filter-input{padding:7px 10px;border:0.5px solid var(--border);border-radius:7px;font-size:12px;color:#1a1a1a;background:var(--surface);outline:none;font-family:var(--font);}
+    .db-filter-input:focus{border-color:var(--gold);}
+    .db-reset-btn{padding:8px 16px;background:var(--surface);border:0.5px solid var(--border);border-radius:7px;font-size:12px;font-weight:500;color:var(--gray);cursor:pointer;}
+    .db-reset-btn:hover{background:#fee;color:var(--red);border-color:#f5b8b8;}
+    .db-conf-bar{height:5px;background:#eee;border-radius:99px;overflow:hidden;margin-top:4px;}
+    .db-conf-fill{height:100%;border-radius:99px;}
+    th[onclick]:hover{background:#f0f0f0;}
+  </style>
+</head>
+<body>
+
+<!-- ══ AUTH SCREEN ══ -->
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="auth-logo-icon">📋</div>
+      <h1>PM Validator Portal</h1>
+      <p>Irancell Preventive Maintenance System</p>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchAuthTab('login')">Sign In</button>
+      <button class="auth-tab" onclick="switchAuthTab('register')">Register</button>
+    </div>
+    <div class="auth-error" id="authError"></div>
+
+    <!-- LOGIN -->
+    <form id="loginForm" onsubmit="doLogin();return false;" autocomplete="on">
+      <div class="auth-field">
+        <label class="auth-label">Username</label>
+        <input class="auth-input" id="loginUser" type="text" placeholder="your username" autocomplete="username"/>
+      </div>
+      <div class="auth-field">
+        <label class="auth-label">Password</label>
+        <input class="auth-input" id="loginPass" type="password" placeholder="password" autocomplete="current-password"/>
+      </div>
+      <button class="auth-btn" type="submit">Sign In →</button>
+    </form>
+
+    <!-- REGISTER -->
+    <form id="registerForm" style="display:none" onsubmit="doRegister();return false;" autocomplete="on">
+      <div class="auth-field">
+        <label class="auth-label">Full Name</label>
+        <input class="auth-input" id="regName" type="text" placeholder="Your full name" autocomplete="name"/>
+      </div>
+      <div class="auth-field">
+        <label class="auth-label">Username</label>
+        <input class="auth-input" id="regUser" type="text" placeholder="choose a username" autocomplete="username"/>
+      </div>
+      <div class="auth-field">
+        <label class="auth-label">Password</label>
+        <input class="auth-input" id="regPass" type="password" placeholder="min 6 characters" autocomplete="new-password"/>
+      </div>
+      <div class="auth-field">
+        <label class="auth-label">Confirm Password</label>
+        <input class="auth-input" id="regPass2" type="password" placeholder="repeat password" autocomplete="new-password"/>
+      </div>
+      <button class="auth-btn" type="submit">Create Account →</button>
+    </form>
+    <div class="auth-footer">Irancell Internal Tool — Authorized Personnel Only</div>
+  </div>
+</div>
+
+<!-- ══ APP SHELL ══ -->
+<div id="appShell">
+  <nav class="topnav">
+    <div class="topnav-logo">
+      <div class="topnav-logo-icon">📋</div>
+      <div>
+        <h1>PM Batch Validator</h1>
+        <p>Irancell Preventive Maintenance</p>
+      </div>
+    </div>
+    <div class="topnav-right">
+      <div class="user-pill">
+        <div class="user-avatar" id="userAvatar">?</div>
+        <span id="userLabel">—</span>
+      </div>
+      <button class="btn-signout" onclick="doSignOut()">Sign Out</button>
+    </div>
+  </nav>
+
+  <div style="background:#fff;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:2px;padding:0 24px;">
+    <button class="subnav-tab active" id="tabValidator" onclick="switchTab('validator')">▶ Validator</button>
+    <button class="subnav-tab" id="tabHistory" onclick="switchTab('history')">📊 Dashboard</button>
+  </div>
+
+  <!-- VALIDATOR TAB -->
+  <div id="panelValidator" class="page-wrap">
+    <div class="main-pad">
+      <div class="dir-card">
+        <div style="width:38px;height:38px;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;">📁</div>
+        <div class="dir-path empty" id="dirPath">No folder selected — click "Select Folder" to begin</div>
+        <button class="btn-pick" onclick="document.getElementById('folderInput').click()">Select Folder</button>
+        <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;">▶ Run All</button>
+        <button class="btn-run" id="btnStopAll" onclick="stopAll()" style="background:#dc3545;display:none;">■ Stop</button>
+        <input type="file" id="folderInput" webkitdirectory multiple accept=".pdf" style="display:none"/>
+      </div>
+
+      <div class="summary-row" id="summaryRow" style="display:none">
+        <div class="stat-card"><div class="stat-num gold" id="sumTotal">0</div><div class="stat-lbl">Total Files</div></div>
+        <div class="stat-card"><div class="stat-num green" id="sumDone">0</div><div class="stat-lbl">Completed</div></div>
+        <div class="stat-card"><div class="stat-num red" id="sumDisputed">0</div><div class="stat-lbl">Disputed</div></div>
+        <div class="stat-card"><div class="stat-num gold" id="sumAvgPct">—</div><div class="stat-lbl">Avg Confirmation</div></div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="jobs-table">
+          <thead>
+            <tr>
+              <th class="col-id">File Name</th>
+              <th class="col-task">Task ID</th>
+              <th class="col-bar">Progress</th>
+              <th class="col-pct">Confirmation</th>
+              <th class="col-ctl">Control</th>
+              <th class="col-act">Report</th>
+            </tr>
+          </thead>
+          <tbody id="jobsBody">
+            <tr><td colspan="5" style="padding:0;border:none;">
+              <div class="empty-state">
+                <div style="font-size:32px">📂</div>
+                <p>Select a folder containing PM Report PDF files to get started.</p>
+              </div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MODAL -->
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <div class="modal-header">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <h2 id="modalTitle">Validation Report</h2>
+            <div id="modalVerdict" class="verdict-badge vb-valid">✓ Validated</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button id="btnSaveReport" style="padding:7px 14px;background:var(--gold);border:none;border-radius:7px;font-size:12px;font-weight:600;color:#333;cursor:pointer;" onclick="saveCurrentReport()">💾 Save Report</button>
+            <button class="modal-close" onclick="closeModal()">✕ Close</button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="modal-stats" id="modalStats"></div>
+          <div id="modalHeaderInfo" class="header-info-box"></div>
+          <div style="overflow-x:auto;">
+            <table class="res-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Item Description</th><th>Photo Checks</th>
+                  <th>PDF Status</th><th>Status Match</th><th>AI Verdict</th><th>AI Explanation</th>
+                </tr>
+              </thead>
+              <tbody id="modalBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD TAB -->
+  <div id="panelHistory" style="display:none;">
+    <div class="main-pad">
+
+      <!-- KPI Row -->
+      <div class="db-kpi-row" id="dbKpiRow">
+        <div class="db-kpi"><div class="db-kpi-num" id="kpiTotal">—</div><div class="db-kpi-lbl">Total Reports</div></div>
+        <div class="db-kpi"><div class="db-kpi-num green" id="kpiValidated">—</div><div class="db-kpi-lbl">Fully Validated</div></div>
+        <div class="db-kpi"><div class="db-kpi-num red" id="kpiDisputed">—</div><div class="db-kpi-lbl">Disputed</div></div>
+        <div class="db-kpi"><div class="db-kpi-num gold" id="kpiAvgConf">—</div><div class="db-kpi-lbl">Avg Confirmation</div></div>
+        <div class="db-kpi"><div class="db-kpi-num" id="kpiSites">—</div><div class="db-kpi-lbl">Unique Sites</div></div>
+      </div>
+
+      <!-- Filters -->
+      <div class="db-filter-bar">
+        <div class="db-filter-group">
+          <label class="db-filter-label">Task ID</label>
+          <input class="db-filter-input" id="fTaskId" type="text" placeholder="Search…" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Site ID</label>
+          <input class="db-filter-input" id="fSiteId" type="text" placeholder="Search…" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Task Category</label>
+          <select class="db-filter-input" id="fCategory" onchange="applyFilters()"><option value="">All</option></select>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Task Subcategory</label>
+          <select class="db-filter-input" id="fSubcategory" onchange="applyFilters()"><option value="">All</option></select>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Report FME</label>
+          <select class="db-filter-input" id="fFme" onchange="applyFilters()"><option value="">All</option></select>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Date From</label>
+          <input class="db-filter-input" id="fDateFrom" type="date" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Date To</label>
+          <input class="db-filter-input" id="fDateTo" type="date" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Min Confirmation %</label>
+          <input class="db-filter-input" id="fMinConf" type="number" min="0" max="100" placeholder="0" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Max Confirmation %</label>
+          <input class="db-filter-input" id="fMaxConf" type="number" min="0" max="100" placeholder="100" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group" style="align-self:flex-end;">
+          <button class="db-reset-btn" onclick="resetFilters()">↺ Reset</button>
+        </div>
+      </div>
+
+      <!-- Results count -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <span style="font-size:12px;color:var(--gray);" id="historyCount">0 reports</span>
+        <span style="font-size:11px;color:var(--gray);" id="dbFilteredCount"></span>
+      </div>
+
+      <!-- Report Table -->
+      <div class="table-wrap">
+        <table class="jobs-table" style="table-layout:fixed;">
+          <thead>
+            <tr>
+              <th style="width:150px;cursor:pointer" onclick="dbSort('taskId')">Task ID <span id="sort-taskId"></span></th>
+              <th style="width:90px;cursor:pointer" onclick="dbSort('siteId')">Site ID <span id="sort-siteId"></span></th>
+              <th style="width:140px;cursor:pointer" onclick="dbSort('taskCategory')">Category <span id="sort-taskCategory"></span></th>
+              <th style="width:160px;cursor:pointer" onclick="dbSort('taskSubcategory')">Subcategory <span id="sort-taskSubcategory"></span></th>
+              <th style="width:110px;cursor:pointer" onclick="dbSort('reportDate')">Date <span id="sort-reportDate"></span></th>
+              <th style="width:130px;cursor:pointer" onclick="dbSort('fmeName')">FME <span id="sort-fmeName"></span></th>
+              <th style="width:90px;cursor:pointer;text-align:center" onclick="dbSort('confirmation')">Confirmation <span id="sort-confirmation"></span></th>
+              <th style="width:80px;text-align:center">Status</th>
+              <th style="width:80px;text-align:center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="dbTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Report Detail Modal -->
+    <div class="modal-overlay" id="histModalOverlay">
+      <div class="modal-box">
+        <div class="modal-header">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <h2 id="histModalTitle">Validation Report</h2>
+            <div id="histModalVerdict" class="verdict-badge vb-valid">✓ Validated</div>
+          </div>
+          <button class="modal-close" onclick="closeHistModal()">✕ Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-stats" id="histModalStats"></div>
+          <div id="histModalHeaderInfo" class="header-info-box"></div>
+          <div style="overflow-x:auto;">
+            <table class="res-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Item Description</th><th>Photo Checks</th>
+                  <th>PDF Status</th><th>Status Match</th><th>AI Verdict</th><th>AI Explanation</th>
+                </tr>
+              </thead>
+              <tbody id="histModalBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+/* ══════════════════════════════════════════════
+   AUTH / STORAGE
+══════════════════════════════════════════════ */
+const STORAGE_PREFIX = 'pm_auth_';
+const REPORTS_PREFIX = 'pm_reports_';
+let currentUser = null;
+let openModalJobIdx = null;
+
+/* Simple hash — pure JS, works on HTTP (no crypto.subtle needed) */
+function hashPassword(password) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < password.length; i++) {
+    h ^= password.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  // Second pass with salt for slightly more resistance
+  let h2 = 0x9747b28c;
+  for (let i = password.length - 1; i >= 0; i--) {
+    h2 ^= (password.charCodeAt(i) + i);
+    h2 = (h2 * 0x5bd1e995) >>> 0;
+  }
+  return (h >>> 0).toString(16).padStart(8,'0') + (h2 >>> 0).toString(16).padStart(8,'0') +
+    (h ^ h2).toString(16).padStart(8,'0') + ((h + h2) >>> 0).toString(16).padStart(8,'0');
+}
+
+function getUsers() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_PREFIX + 'users') || '{}'); } catch { return {}; }
+}
+
+function saveUsers(users) {
+  localStorage.setItem(STORAGE_PREFIX + 'users', JSON.stringify(users));
+}
+
+function getSessionUser() {
+  try { return JSON.parse(sessionStorage.getItem('pm_session') || 'null'); } catch { return null; }
+}
+
+function setSessionUser(user) {
+  sessionStorage.setItem('pm_session', JSON.stringify(user));
+}
+
+function clearSession() {
+  sessionStorage.removeItem('pm_session');
+}
+
+function getUserReports(username) {
+  try { return JSON.parse(localStorage.getItem(REPORTS_PREFIX + username) || '[]'); } catch { return []; }
+}
+
+function saveUserReports(username, reports) {
+  localStorage.setItem(REPORTS_PREFIX + username, JSON.stringify(reports));
+}
+
+/* ── AUTH UI ── */
+let authTab = 'login';
+
+function switchAuthTab(tab) {
+  authTab = tab;
+  document.getElementById('loginForm').style.display = tab === 'login' ? '' : 'none';
+  document.getElementById('registerForm').style.display = tab === 'register' ? '' : 'none';
+  document.querySelectorAll('.auth-tab').forEach((el, i) => {
+    el.classList.toggle('active', (tab === 'login' && i === 0) || (tab === 'register' && i === 1));
+  });
+  hideAuthError();
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('authError');
+  el.textContent = msg; el.classList.add('show');
+}
+function hideAuthError() {
+  document.getElementById('authError').classList.remove('show');
+}
+
+function doLogin() {
+  const user = document.getElementById('loginUser').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  if (!user || !pass) { showAuthError('Please fill all fields.'); return; }
+  const users = getUsers();
+  if (!users[user]) { showAuthError('User not found. Please register first.'); return; }
+  const hash = hashPassword(pass);
+  if (users[user].hash !== hash) { showAuthError('Incorrect password.'); return; }
+  setSessionUser({username: user, name: users[user].name});
+  startApp(user, users[user].name);
+}
+
+function doRegister() {
+  const name = document.getElementById('regName').value.trim();
+  const user = document.getElementById('regUser').value.trim();
+  const pass = document.getElementById('regPass').value;
+  const pass2 = document.getElementById('regPass2').value;
+  if (!name || !user || !pass || !pass2) { showAuthError('Please fill all fields.'); return; }
+  if (pass.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
+  if (pass !== pass2) { showAuthError('Passwords do not match.'); return; }
+  if (!/^[a-zA-Z0-9_]+$/.test(user)) { showAuthError('Username can only contain letters, numbers, and underscores.'); return; }
+  const users = getUsers();
+  if (users[user]) { showAuthError('Username already taken. Choose another.'); return; }
+  const hash = hashPassword(pass);
+  users[user] = {name, hash, createdAt: new Date().toISOString()};
+  saveUsers(users);
+  setSessionUser({username: user, name});
+  startApp(user, name);
+}
+
+function startApp(username, name) {
+  currentUser = {username, name};
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('appShell').classList.add('visible');
+  const initials = name.split(' ').map(n => n[0]).join('').substring(0,2).toUpperCase();
+  document.getElementById('userAvatar').textContent = initials;
+  document.getElementById('userLabel').textContent = name;
+  renderHistory();
+}
+
+function doSignOut() {
+  clearSession();
+  currentUser = null;
+  jobs = [];
+  document.getElementById('appShell').classList.remove('visible');
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('loginUser').value = '';
+  document.getElementById('loginPass').value = '';
+  switchAuthTab('login');
+}
+
+/* Auto-restore session */
+window.addEventListener('DOMContentLoaded', () => {
+  const session = getSessionUser();
+  if (session) { startApp(session.username, session.name); }
+  loadTaskRules();
+});
+
+/* ══════════════════════════════════════════════
+   TABS
+══════════════════════════════════════════════ */
+function switchTab(tab) {
+  document.getElementById('panelValidator').style.display = tab === 'validator' ? '' : 'none';
+  document.getElementById('panelHistory').style.display = tab === 'history' ? '' : 'none';
+  document.getElementById('tabValidator').classList.toggle('active', tab === 'validator');
+  document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
+  if (tab === 'history') renderHistory();
+}
+
+/* ══════════════════════════════════════════════
+   SAVE / HISTORY
+══════════════════════════════════════════════ */
+function saveCurrentReport() {
+  if (openModalJobIdx === null) return;
+  const job = jobs[openModalJobIdx];
+  if (!currentUser) return;
+  const h = job.parsedHeader || {};
+  const reports = getUserReports(currentUser.username);
+  const report = {
+    id: Date.now(),
+    savedAt: new Date().toISOString(),
+    fileName: job.file.name,
+    taskId: h.taskId || job.taskId,
+    siteId: h.siteId || '',
+    taskCategory: h.taskCategory || '',
+    taskSubcategory: h.taskSubcategory || '',
+    reportDate: h.reportDate || '',
+    fmeName: h.fmeName || '',
+    parsedHeader: h,
+    parsedItems: job.parsedItems,
+    results: job.results,
+    confirmation: job.confirmation,
+  };
+  const existing = reports.findIndex(r => r.taskId === report.taskId);
+  if (existing !== -1) reports.splice(existing, 1);
+  reports.unshift(report);
+  saveUserReports(currentUser.username, reports);
+  showToast('✓ Report saved');
+  if (document.getElementById('panelHistory').style.display !== 'none') renderHistory();
+}
+
+/* ── Dashboard state ── */
+let dbSortKey = 'savedAt';
+let dbSortDir = -1;
+
+function renderHistory() {
+  if (!currentUser) return;
+  const reports = getUserReports(currentUser.username);
+  populateFilterDropdowns(reports);
+  updateKpis(reports);
+  applyFilters();
+}
+
+function populateFilterDropdowns(reports) {
+  const cats    = [...new Set(reports.map(r => r.taskCategory).filter(Boolean))].sort();
+  const subcats = [...new Set(reports.map(r => r.taskSubcategory).filter(Boolean))].sort();
+  const fmes    = [...new Set(reports.map(r => r.fmeName).filter(Boolean))].sort();
+  const fill = (id, vals) => {
+    const sel = document.getElementById(id); if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All</option>' + vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
+    sel.value = cur;
+  };
+  fill('fCategory', cats); fill('fSubcategory', subcats); fill('fFme', fmes);
+}
+
+function updateKpis(reports) {
+  const filtered  = getFilteredReports(reports);
+  const validated = filtered.filter(r => !(r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
+  const disputed  = filtered.filter(r =>  (r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
+  const pcts = filtered.map(r => r.confirmation).filter(v => v != null);
+  const avg  = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
+  const sites = new Set(filtered.map(r => r.siteId).filter(Boolean)).size;
+  document.getElementById('kpiTotal').textContent     = filtered.length;
+  document.getElementById('kpiValidated').textContent = validated;
+  document.getElementById('kpiDisputed').textContent  = disputed;
+  document.getElementById('kpiAvgConf').textContent   = avg != null ? avg + '%' : '—';
+  document.getElementById('kpiSites').textContent     = sites || '—';
+}
+
+function getFilteredReports(reports) {
+  const g = id => (document.getElementById(id)?.value || '');
+  const fTaskId   = g('fTaskId').toLowerCase();
+  const fSiteId   = g('fSiteId').toLowerCase();
+  const fCat      = g('fCategory');
+  const fSub      = g('fSubcategory');
+  const fFme      = g('fFme');
+  const fDateFrom = g('fDateFrom');
+  const fDateTo   = g('fDateTo');
+  const fMinConf  = parseInt(g('fMinConf'))  || 0;
+  const fMaxConf  = parseInt(g('fMaxConf'));
+  const maxConf   = isNaN(fMaxConf) ? 100 : fMaxConf;
+  return reports.filter(r => {
+    if (fTaskId  && !(r.taskId||'').toLowerCase().includes(fTaskId))   return false;
+    if (fSiteId  && !(r.siteId||'').toLowerCase().includes(fSiteId))   return false;
+    if (fCat     && r.taskCategory    !== fCat)    return false;
+    if (fSub     && r.taskSubcategory !== fSub)    return false;
+    if (fFme     && r.fmeName         !== fFme)    return false;
+    const rd = (r.reportDate||'').substring(0,10);
+    if (fDateFrom && rd && rd < fDateFrom) return false;
+    if (fDateTo   && rd && rd > fDateTo)   return false;
+    const conf = r.confirmation ?? 0;
+    if (conf < fMinConf || conf > maxConf) return false;
+    return true;
+  });
+}
+
+function applyFilters() {
+  if (!currentUser) return;
+  const reports  = getUserReports(currentUser.username);
+  updateKpis(reports);
+  const filtered = getFilteredReports(reports);
+  filtered.sort((a, b) => {
+    let va = a[dbSortKey] ?? '', vb = b[dbSortKey] ?? '';
+    if (va < vb) return -dbSortDir; if (va > vb) return dbSortDir; return 0;
+  });
+  ['taskId','siteId','taskCategory','taskSubcategory','reportDate','fmeName','confirmation'].forEach(k => {
+    const el = document.getElementById('sort-'+k);
+    if (el) el.textContent = k === dbSortKey ? (dbSortDir===1?' ↑':' ↓') : '';
+  });
+  const total = reports.length;
+  document.getElementById('historyCount').textContent = total + ' report' + (total!==1?'s':'');
+  const fc = document.getElementById('dbFilteredCount');
+  if (fc) fc.textContent = filtered.length < total ? `Showing ${filtered.length} of ${total}` : '';
+  const tbody = document.getElementById('dbTableBody');
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--gray);font-size:13px;">${total?'No reports match the current filters.':'No saved reports yet. Run the validator and click "Save Report".'}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = filtered.map(r => {
+    const conf = r.confirmation ?? 0;
+    const cc   = conf>=80?'high':conf>=50?'mid':'low';
+    const fc2  = conf>=80?'var(--green)':conf>=50?'#d4a017':'var(--red)';
+    const disp = (r.results||[]).some(x => x.verdict==='DISPUTED');
+    const rd   = r.reportDate ? r.reportDate.substring(0,10) : '—';
+    const origIdx = reports.indexOf(r);
+    return `<tr style="cursor:pointer" onclick="openHistoryReport(${origIdx})">
+      <td style="font-family:var(--mono);font-size:11px;font-weight:600">${escHtml(r.taskId||'—')}</td>
+      <td style="font-family:var(--mono);font-size:11px">${escHtml(r.siteId||'—')}</td>
+      <td style="font-size:11px">${escHtml(r.taskCategory||'—')}</td>
+      <td style="font-size:11px">${escHtml(r.taskSubcategory||'—')}</td>
+      <td style="font-size:11px;font-family:var(--mono)">${escHtml(rd)}</td>
+      <td style="font-size:11px">${escHtml(r.fmeName||'—')}</td>
+      <td style="text-align:center">
+        <div class="pct-cell ${cc}" style="font-size:13px">${conf}%</div>
+        <div class="db-conf-bar"><div class="db-conf-fill" style="width:${conf}%;background:${fc2}"></div></div>
+      </td>
+      <td style="text-align:center"><span class="vbadge ${disp?'vb-disputed':'vb-confirmed'}">${disp?'Disputed':'Validated'}</span></td>
+      <td style="text-align:center" onclick="event.stopPropagation()">
+        <button class="btn-delete" onclick="deleteHistoryReport(${origIdx})" title="Delete">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function dbSort(key) {
+  dbSortDir = dbSortKey===key ? dbSortDir*-1 : 1;
+  dbSortKey = key;
+  applyFilters();
+}
+
+function resetFilters() {
+  ['fTaskId','fSiteId','fDateFrom','fDateTo','fMinConf','fMaxConf'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['fCategory','fSubcategory','fFme'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  applyFilters();
+}
+
+function deleteHistoryReport(idx) {
+  if (!currentUser) return;
+  const reports = getUserReports(currentUser.username);
+  reports.splice(idx, 1);
+  saveUserReports(currentUser.username, reports);
+  renderHistory();
+  showToast('Report deleted');
+}
+
+function openHistoryReport(idx) {
+  const reports = getUserReports(currentUser.username);
+  const r = reports[idx];
+  renderModalContent(r.parsedHeader, r.parsedItems, r.results, r.taskId||r.fileName,
+    'histModalTitle','histModalVerdict','histModalStats','histModalHeaderInfo','histModalBody');
+  document.getElementById('histModalOverlay').classList.add('open');
+}
+
+function closeHistModal() {
+  document.getElementById('histModalOverlay').classList.remove('open');
+}
+document.addEventListener('click', e => {
+  if (e.target === document.getElementById('histModalOverlay')) closeHistModal();
+});
+
+/* ══════════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════════ */
+let toastTimeout;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+/* ══════════════════════════════════════════════
+   VALIDATOR (original logic, preserved exactly)
+══════════════════════════════════════════════ */
+const LLM_URL   = 'http://10.130.154.133:8000/v1/chat/completions';
+const LLM_MODEL = './';
+const MINIO_BASE = 'http://10.224.235.31:9000/pm-photos';
+const BASE_PHOTO_PATH = `${MINIO_BASE}/photos/`;
+const EXTRACT_API = 'http://10.224.235.31:9700/extract';
+
+// ── Set to false to skip photo extraction and read directly from MinIO ──
+const EXTRACT_PHOTOS = true;
+
+const SITES_DATA = [
+  {siteId:'225-Shahrekord-BSC',lat:32.31735333333334,lon:50.861},
+  {siteId:'SITE002',lat:79,lon:80},
+  {siteId:'SITE003',lat:35.6995,lon:51.3380},
+  {siteId:'E2782',lat:35.6995,lon:51.3380},
+  {siteId:'T3309',lat:35.6995,lon:51.3380},
+  {siteId:'E1048',lat:29.6372,lon:52.5223},
+  {siteId:'T8844',lat:31.290977,lon:52.48984},
+];
+
+let TASK_RULES = {};
+let jobs = [];
+
+
+
+let runAllActive  = false;  // true while Run All loop is running
+let runAllAbort   = false;  // set to true by Stop to break the loop
+
+
+/* ── Table rendering ─────────────────────────────────────────────────── */
+function renderJobsTable() {
+  const tbody = document.getElementById('jobsBody');
+  if (!jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:0;border:none;"><div class="empty-state"><div style="font-size:32px">📂</div><p>Select a folder containing PM Report PDF files to get started.</p></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = jobs.map((job, idx) => buildJobRow(job, idx)).join('');
+}
+
+function buildJobRow(job, idx) {
+  const pctHtml = job.confirmation !== null
+    ? `<div class="pct-cell ${job.confirmation>=80?'high':job.confirmation>=50?'mid':'low'}">${job.confirmation}%</div>`
+    : `<div class="pct-cell na">—</div>`;
+  const reportHtml = job.status === 'done'
+    ? `<button class="btn-view ready" onclick="openModal(${idx})">View Report →</button>`
+    : job.status === 'error'
+    ? `<span style="font-size:11px;color:var(--red)">Error</span>`
+    : `<button class="btn-view" disabled>—</button>`;
+  const fillClass = job.status==='done'?' done':job.status==='error'?' error':'';
+
+  let ctlHtml = '';
+  if (job.status === 'running') {
+    ctlHtml = `<button class="btn-job-run" disabled>Running…</button>`;
+  } else if (job.status === 'done' || job.status === 'error') {
+    ctlHtml = `<button class="btn-job-run" onclick="runSingle(${idx})">↺ Re-run</button>`;
+  } else {
+    ctlHtml = `<button class="btn-job-run" onclick="runSingle(${idx})">▶ Run</button>`;
+  }
+
+  return `<tr>
+    <td class="col-id" style="font-family:var(--mono);font-size:12px;font-weight:500;">${escHtml(job.file.name)}</td>
+    <td class="col-task" style="font-family:var(--mono);font-size:12px;color:#555;">${escHtml(job.parsedHeader?.taskId||'—')}</td>
+    <td class="col-bar"><div class="bar-wrap"><div class="bar-track"><div class="bar-fill${fillClass}" style="width:${job.pct}%"></div></div><span class="bar-label">${escHtml(job.barLabel)}</span></div></td>
+    <td class="col-pct">${pctHtml}</td>
+    <td class="col-ctl">${ctlHtml}</td>
+    <td class="col-act">${reportHtml}</td>
+  </tr>`;
+}
+
+function setJob(idx, updates) {
+  Object.assign(jobs[idx], updates);
+  const tbody = document.getElementById('jobsBody');
+  const rows = tbody.querySelectorAll('tr');
+  if (rows[idx]) {
+    const tmp = document.createElement('tbody');
+    tmp.innerHTML = buildJobRow(jobs[idx], idx);
+    rows[idx].parentNode.replaceChild(tmp.firstChild, rows[idx]);
+  }
+  updateSummary();
+  updateGlobalBtns();
+}
+
+function updateSummary() {
+  const done     = jobs.filter(j => j.status==='done').length;
+  const disputed = jobs.filter(j => j.status==='done' && j.confirmation!==null && j.confirmation<100).length;
+  const pcts     = jobs.filter(j => j.confirmation!==null).map(j => j.confirmation);
+  const avg      = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
+  document.getElementById('sumTotal').textContent    = jobs.length;
+  document.getElementById('sumDone').textContent     = done;
+  document.getElementById('sumDisputed').textContent = disputed;
+  document.getElementById('sumAvgPct').textContent   = avg !== null ? avg+'%' : '—';
+}
+
+/* ── Global buttons ──────────────────────────────────────────────────── */
+function updateGlobalBtns() {
+  const hasPending = jobs.some(j => j.status === 'pending');
+  const btnRun  = document.getElementById('btnRunAll');
+  const btnStop = document.getElementById('btnStopAll');
+  if (runAllActive) {
+    btnRun.style.display  = 'none';
+    btnStop.style.display = '';
+  } else {
+    btnRun.style.display  = '';
+    btnRun.disabled       = !hasPending;
+    btnStop.style.display = 'none';
+  }
+}
+
+/* ── Run All ─────────────────────────────────────────────────────────── */
+async function runAll() {
+  if (runAllActive) return;
+  runAllActive  = true;
+  runAllStopped = false;
+  updateGlobalBtns();
+
+  for (let i = 0; i < jobs.length; i++) {
+    if (runAllStopped) break;
+    const s = jobs[i].status;
+    if (s === 'done' || s === 'running' || s === 'paused') continue;
+    if (s !== 'pending') continue;
+    await processJob(i);
+    if (runAllStopped) break;
+  }
+
+  runAllActive  = false;
+  runAllStopped = false;
+  updateGlobalBtns();
+}
+
+/* ── Pause All ───────────────────────────────────────────────────────── */
+/* ── Stop All ────────────────────────────────────────────────────────── */
+function stopAll() {
+  runAllAbort = true;
+  jobs.forEach((j, i) => {
+    if (j.status === 'running') setJob(i, {status:'pending', pct:0, barLabel:'Stopped'});
+  });
+  runAllActive = false;
+  updateGlobalBtns();
+}
+
+/* ── Run single job independently ────────────────────────────────────── */
+async function runSingle(idx) {
+  if (jobs[idx].status === 'running') return;
+  setJob(idx, {status:'pending', pct:0, barLabel:'Waiting…'});
+  await processJob(idx);
+  updateGlobalBtns();
+}
+function isEnglishPdf(fullText, filename) {
+  // If text layer has Persian/Arabic chars it's Persian
+  if (/[\u0600-\u06FF]/.test(fullText)) return false;
+  // If filename or text has English task pattern it's English
+  return true;
+}
+
+async function processJob(idx) {
+  const job = jobs[idx];
+  if (EXTRACT_PHOTOS) {
+    setJob(idx, {status:'running', pct:2, barLabel:'Extracting photos...'});
+    const formData = new FormData();
+    formData.append('file', job.file);
+    const extractResp = await fetch(EXTRACT_API, {method:'POST', body:formData});
+    const extractData = await extractResp.json();
+    if (!extractData.success) throw new Error(extractData.error || 'Extraction failed');
+  } else {
+    setJob(idx, {status:'running', pct:2, barLabel:'Using existing photos from MinIO...'});
+  }
+  try {
+      setJob(idx, {status:'running', pct:5, barLabel:'Reading PDF…'});
+    const fileBuffer = await job.file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({
+      data:fileBuffer, verbosity:0, isEvalSupported:false,
+      useWorkerFetch:false, disableAutoFetch:false, disableStream:false, rangeChunkSize:65536
+    }).promise;
+    let fullText = '';
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const tc = await (await pdf.getPage(p)).getTextContent();
+      fullText += tc.items.map(i => i.str).join('\n') + '\n\f\n';
+    }
+    const headerKeys = {'Task ID:':'taskId','Task Category:':'taskCategory','Task Subcategory:':'taskSubcategory','Site ID:':'siteId','Report Date:':'reportDate','Report FME:':'fmeName'};
+    const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      for (const [label, key] of Object.entries(headerKeys)) {
+        if (lines[i].startsWith(label))
+          job.parsedHeader[key] = lines[i].replace(label,'').trim() || (lines[i+1]||'').trim();
+      }
+    }
+    const resolvedTaskId = job.parsedHeader.taskId || job.taskId;
+    setJob(idx, {pct:15, barLabel:'Extracting items…'});
+    const isEnglish = isEnglishPdf(fullText, job.file.name);
+    const tasks = await extractTasksFromPdf(pdf, isEnglish);
+    const llmItems = await extractItemsWithBatching(tasks, isEnglish);
+    const cleanedItems = isEnglish ? llmItems : await cleanConsecutiveTasks(llmItems);
+    job.parsedItems = tasks.map(task => {
+      const match = cleanedItems.find(l => parseInt(l.num) === parseInt(task.num));
+      return {num:task.num, desc:match?.desc??task.desc, result:task.result??'NOT_OK'};
+    });
+    const siteInfo = SITES_DATA.find(s => s.siteId.toUpperCase()===(job.parsedHeader.siteId||'').toUpperCase()) || null;
+      setJob(idx, {pct:40, barLabel:'Loading photos…'});
+    const itemPhotoMap = {};
+    await Promise.all(job.parsedItems.map(async item => {
+      const folderPath = `${BASE_PHOTO_PATH}${resolvedTaskId}/${item.num}/`;
+      const images = [];
+      for (let i = 1; i <= 50; i++) {
+        const url = `${folderPath}${i}.jpg`;
+        const b64 = await fetchImageAsBase64(url);
+        if (!b64) break;
+        images.push({name:`${i}.jpg`, base64:b64});
+      }
+      if (images.length > 0) itemPhotoMap[item.num] = images;
+    }));
+      setJob(idx, {pct:55, barLabel:'AI validation…'});
+    const results = await runValidation(job.parsedItems, itemPhotoMap, job.parsedHeader, siteInfo, (i, total) => {
+      const p = 55 + Math.round((i/total)*35);
+      setJob(idx, {pct:p, barLabel:`Validating ${i}/${total}…`});
+    });
+    job.results = results;
+    const confirmed = results.filter(r => r.verdict==='CONFIRMED').length;
+    const total = results.length;
+    const confirmation = total > 0 ? Math.round(confirmed/total*100) : 0;
+    setJob(idx, {status:'done', pct:100, barLabel:'Complete', confirmation});
+  } catch (err) {
+    console.error('Job error:', err);
+    setJob(idx, {status:'error', pct:100, barLabel:'Failed: '+err.message});
+  }
+}
+
+/* PDF parsing — identical to original */
+async function extractTasksFromPdf(pdf, isEnglish=false) {
+  const tasks = []; let taskCounter = 1;
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const tc = await page.getTextContent();
+    const items = tc.items.map(it=>({str:(it.str||'').trim(),x:it.transform[4],y:it.transform[5]})).filter(it=>it.str);
+    const okItems = items.filter(it=>/^ok$/i.test(it.str));
+    const checkboxNotOks = items.filter(it=>/Not\s*Ok/i.test(it.str)).filter(notOk=>okItems.some(ok=>Math.abs(ok.y-notOk.y)<=10));
+    if (!checkboxNotOks.length){page.cleanup();continue;}
+    const anchorYs = checkboxNotOks.map(it=>it.y).sort((a,b)=>b-a);
+    /*const boundaries = anchorYs.map((y,i)=>({anchorY:y,top:i===0?1e5:(anchorYs[i-1]+y)/2,bottom:i===anchorYs.length-1?-1e5:(y+anchorYs[i+1])/2}));*/
+    const boundaries = isEnglish
+      ? anchorYs.map((y,i)=>({anchorY:y,top:i===0?1e5:(anchorYs[i-1]+y)/2,bottom:i===anchorYs.length-1?-1e5:(y+anchorYs[i+1])/2}))
+      : anchorYs.map((y,i)=>({anchorY:y,top:i===0?1e5:(anchorYs[i-1]+y)/4,bottom:i===anchorYs.length-1?-1e5:y-(anchorYs[i]-anchorYs[i+1])/4}));
+    const strips = await getCheckboxStripImage(pdf,pageNum,anchorYs);
+    const results = await Promise.all(strips.map(detectCheckboxFromStrip));
+    for (let bi=0;bi<boundaries.length;bi++){
+      const {top,bottom}=boundaries[bi];const result=results[bi]??'OK';
+      // const box=items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+10)).filter(it=>!/(^|\b)(ok|not\s*ok)(\b|$)|☑|☐|✓|✗/i.test(it.str));
+      const box=items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+10)).filter(it=>!/^(ok|not\s*ok)$/i.test(it.str.trim())).filter(it=>!/☑|☐|✓|✗/.test(it.str));
+      box.sort((a,b)=>Math.abs(a.y-b.y)>3?(isEnglish?b.y-a.y:a.y-b.y):(isEnglish?a.x-b.x:b.x-a.x));
+      const desc=box.map(it=>it.str).join(' ').replace(/\s+/g,' ').trim();
+      if(desc.length>5)tasks.push({num:taskCounter++,desc,result});
+    }
+    page.cleanup();
+  }
+  await pdf.destroy();
+  return tasks;
+}
+
+/*async function extractTasksFromPdf(pdf) {
+  const tasks = []; let taskCounter = 1;
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const tc = await page.getTextContent();
+    const items = tc.items.map(it => ({ str: (it.str || '').trim(), x: it.transform[4], y: it.transform[5] })).filter(it => it.str);
+
+    const okItems = items.filter(it => /^ok$/i.test(it.str));
+    const checkboxNotOks = items.filter(it => /Not\s*Ok/i.test(it.str))
+      .filter(notOk => okItems.some(ok => Math.abs(ok.y - notOk.y) <= 10));
+    if (!checkboxNotOks.length) { page.cleanup(); continue; }
+
+    const anchorYs = checkboxNotOks.map(it => it.y).sort((a, b) => b - a);
+
+    const boundaries = anchorYs.map((anchorY, i) => {
+      // TOP: midpoint to previous anchor (or page top)
+      const top = i === 0 ? 1e5 : (anchorYs[i - 1] + anchorY) / 2;
+
+      // BOTTOM: use the anchor Y itself minus a small gap (not midpoint to next)
+      // This prevents the NEXT item's description text (which sits ABOVE the next anchor)
+      // from bleeding into THIS item's text collection
+      const bottom = anchorY - 2;   // ← key fix: stop just above the checkbox row itself
+
+      return { anchorY, top, bottom };
+    });
+
+    const strips = await getCheckboxStripImage(pdf, pageNum, anchorYs);
+    const results = await Promise.all(strips.map(detectCheckboxFromStrip));
+
+    for (let bi = 0; bi < boundaries.length; bi++) {
+      const { top, bottom, anchorY } = boundaries[bi];
+      const result = results[bi] ?? 'OK';
+
+      // Collect text that belongs to THIS item:
+      // - Must be between top and bottom boundaries
+      // - Must be ABOVE the anchor (checkbox) row, not below it
+      // - Exclude checkbox label text
+      const box = items
+        .filter(it => it.y < top && it.y > bottom)
+        .filter(it => it.y > anchorY + 2)  // ← must be above the checkbox row
+        .filter(it => !/(^|\b)(ok|not\s*ok)(\b|$)|☑|☐|✓|✗/i.test(it.str));
+
+      box.sort((a, b) => Math.abs(a.y - b.y) > 3 ? b.y - a.y : a.x - b.x); // ← RTL: sort by x ascending for Persian
+
+      const desc = box.map(it => it.str).join(' ').replace(/\s+/g, ' ').trim();
+      if (desc.length > 5) tasks.push({ num: taskCounter++, desc, result });
+    }
+    page.cleanup();
+  }
+  await pdf.destroy();
+  return tasks;
+}*/
+async function getCheckboxStripImage(pdf,pageNum,anchorYs){
+  const page=await pdf.getPage(pageNum);const viewport=page.getViewport({scale:2.0});
+  const canvas=document.createElement('canvas');canvas.width=viewport.width;canvas.height=viewport.height;
+  await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+  const SCALE=2,cropX=170*SCALE,cropW=160*SCALE,PADDING=30*SCALE;
+  return anchorYs.map(anchorY=>{
+    const canvasY=viewport.height-(anchorY*SCALE)-PADDING,cropH=PADDING*2;
+    const strip=document.createElement('canvas');strip.width=cropW;strip.height=cropH;
+    strip.getContext('2d').drawImage(canvas,cropX,canvasY,cropW,cropH,0,0,cropW,cropH);
+    return strip.toDataURL('image/jpeg',0.9);
+  });
+}
+
+async function detectCheckboxFromStrip(stripBase64){
+  const prompt=`This image shows a single checkbox row from a maintenance report. It contains two checkboxes: one for "OK" and one for "Not OK". Look carefully at which checkbox has a checkmark/tick inside it.\nReturn ONLY one of these two values, nothing else:\nOK\nNOT_OK`;
+  try{
+    const res=await fetch(LLM_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:LLM_MODEL,messages:[{role:'user',content:[{type:'text',text:prompt},{type:'image_url',image_url:{url:stripBase64}}]}],temperature:0})});
+    const data=await res.json();const answer=(data.choices?.[0]?.message?.content||'').trim().toUpperCase();
+    return answer.includes('NOT_OK')?'NOT_OK':'OK';
+  }catch{return 'OK';}
+}
+
+function dedupeItems(items){
+  const seen=new Map();
+  items.forEach(item=>{
+    if(!item.desc)return;
+    const key=item.num+'|'+item.desc.trim().replace(/[\u200c\u200b\u200e\u200f]/g,'').replace(/\s+/g,'').replace(/[.,،;؛]/g,'');
+    if(!seen.has(key))seen.set(key,item);
+  });
+  return Array.from(seen.values()).sort((a,b)=>a.num-b.num);
+}
+
+async function extractItemsWithBatching(tasks, isEnglish=false){
+  const CHUNK_SIZE=5;let allItems=[];
+  for(let i=0;i<tasks.length;i+=CHUNK_SIZE){
+    const batch=tasks.slice(i,i+CHUNK_SIZE);
+    const text=batch.map(t=>`${t.num}. ${t.desc}\nNot OK`).join('\n');
+    const results=await callLLMExtract(text, isEnglish);
+    if(!results.length){allItems.push(...batch.map(t=>({num:t.num,desc:t.desc,result:'NOT_OK'})));continue;}
+    allItems.push(...results);
+  }
+  return dedupeItems(allItems);
+}
+
+async function callLLMExtract(textChunk, isEnglish=false){
+  /*const prompt=`The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nTASK:\n1. If Persian: fix character shaping and joining.\n2. If English: fix any broken words.\n3. Extract each unique maintenance task description cleanly.\n4. Return ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean task description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do not duplicate sentences\n\nRAW TEXT:\n${textChunk}`;*/
+    const prompt = isEnglish
+    // ? `Extract numbered maintenance tasks from this English text. Each item at text starts with a number like "1.", "2.", etc.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete description for that number, joined cleanly\n- result is always NOT_OK\n- One entry per number, do not split or merge numbered items\n- Ignore lines without a number prefix\nRAW TEXT:\n${textChunk}`
+      ? `Extract numbered maintenance tasks from this English text. Each item starts with a number like "1.", "2.", etc.\nThe same description may appear 2-5 times repeated — pick it ONCE only.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete clean description for that number, NO repetition inside desc\n- result is always NOT_OK\n- One entry per number, never duplicate the same number\n- If the same sentence appears multiple times inside one item's text, include it only once\n- Ignore lines without a number prefix\n- Ignore lines containing only "battery wo falt darad" or "Not OK" or "OK"\nRAW TEXT:\n${textChunk}`  
+    : `The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nTASK:\n1. If Persian: fix character shaping and joining.\n2. If English: fix any broken words.\n3. Extract each unique maintenance task description cleanly.\n4. Return ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean task description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do not duplicate sentences\n\nRAW TEXT:\n${textChunk}`;
+  try{
+    const res=await fetch(LLM_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:LLM_MODEL,messages:[{role:'user',content:prompt}],temperature:0.0})});
+    if(!res.ok)return[];
+    const data=await res.json();const raw=data.choices?.[0]?.message?.content||'';
+    const match=raw.match(/\[[\s\S]*\]/);return match?JSON.parse(match[0]):[];
+  }catch{return[];}
+}
+
+// async function cleanConsecutiveTasks(items) {
+//   // Check each consecutive pair: if task[i] contains task[i+1]'s text, remove it from task[i]
+//   if (items.length < 2) return items;
+//   const cleaned = items.map(it => ({...it}));
+//   for (let i = 0; i < cleaned.length - 1; i++) {
+//     const curr = cleaned[i];
+//     const next = cleaned[i + 1];
+//     if (!curr.desc || !next.desc) continue;
+
+//     // Quick JS check first: if next task text appears inside current task text
+//     // Use a significant overlap threshold (>30 chars) to avoid false positives
+//     const nextShort = next.desc.replace(/\s+/g,' ').trim();
+//     const currShort = curr.desc.replace(/\s+/g,' ').trim();
+//     if (nextShort.length < 15) continue;  // too short to check
+
+//     // Check if a significant portion of next.desc appears in curr.desc
+//     const overlapLen = 30;
+//     const nextSample = nextShort.substring(0, overlapLen);
+//     if (!currShort.includes(nextSample)) continue;  // no overlap, skip LLM call
+
+//     // Overlap detected — ask LLM to clean it
+//     try {
+//       const prompt = `You are cleaning extracted text from a Persian/English maintenance report PDF.
+// Task ${curr.num} text below incorrectly contains text that belongs to task ${next.num}.
+// Remove ONLY the part of task ${curr.num} that belongs to task ${next.num}.
+// Keep task ${curr.num}'s own text intact.
+
+// Task ${curr.num} (may contain extra text from task ${next.num}):
+// ${curr.desc}
+
+// Task ${next.num} (correct text for reference):
+// ${next.desc}
+
+// Return ONLY a JSON object, no markdown:
+// {"num":${curr.num},"desc":"cleaned text of task ${curr.num} only"}`;
+
+//       const res = await fetch(LLM_URL, {
+//         method: 'POST',
+//         headers: {'Content-Type':'application/json'},
+//         body: JSON.stringify({model:LLM_MODEL, messages:[{role:'user',content:prompt}], temperature:0})
+//       });
+//       if (!res.ok) continue;
+//       const data = await res.json();
+//       const raw = data.choices?.[0]?.message?.content || '';
+//       const match = raw.match(/\{[\s\S]*\}/);
+//       if (match) {
+//         const result = JSON.parse(match[0]);
+//         if (result.desc && result.desc.length > 5) {
+//           cleaned[i].desc = result.desc;
+//         }
+//       }
+//     } catch(e) { /* keep original if LLM fails */ }
+//   }
+//   return cleaned;
+// }
+
+async function cleanConsecutiveTasks(items) {
+  if (items.length < 2) return items;
+  const cleaned = items.map(it => ({...it}));
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const curr = cleaned[i];
+    if (!curr.desc || curr.desc.length < 15) continue;
+    const currShort = curr.desc.replace(/\s+/g,' ').trim();
+
+    // Check both neighbours: prev (i-1) and next (i+1)
+    const neighbours = [];
+    if (i > 0 && cleaned[i-1].desc)                       neighbours.push(cleaned[i-1]);
+    if (i < cleaned.length-1 && cleaned[i+1].desc)        neighbours.push(cleaned[i+1]);
+
+    let bleedNeighbour = null;
+    for (const nb of neighbours) {
+      const nbShort = nb.desc.replace(/\s+/g,' ').trim();
+      if (nbShort.length < 15) continue;
+      // Sample from both ends of neighbour text (bleed can appear at start OR end of curr)
+      const sampleStart = nbShort.substring(0, Math.min(40, nbShort.length));
+      const sampleEnd   = nbShort.substring(Math.max(0, nbShort.length - 40));
+      if (currShort.includes(sampleStart) || currShort.includes(sampleEnd)) {
+        bleedNeighbour = nb;
+        break;
+      }
+    }
+
+    if (!bleedNeighbour) continue;
+
+    // Ask LLM to remove the bleed text
+    try {
+      const prompt = `You are cleaning text extracted from a Persian/English PDF maintenance report.
+Task ${curr.num} below incorrectly contains text that belongs to task ${bleedNeighbour.num}.
+Remove ONLY the part from task ${bleedNeighbour.num} that has bled into task ${curr.num}.
+Keep task ${curr.num} own description fully intact.
+
+Task ${curr.num} (dirty — contains bleed-in from task ${bleedNeighbour.num}):
+${curr.desc}
+
+Task ${bleedNeighbour.num} reference text (remove this from task ${curr.num}):
+${bleedNeighbour.desc}
+
+Return ONLY valid JSON, no markdown:
+{"num":${curr.num},"desc":"cleaned text of task ${curr.num} only"}`;
+
+      const res = await fetch(LLM_URL, {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({model:LLM_MODEL, messages:[{role:'user',content:prompt}], temperature:0})});
+      if (!res.ok) continue;
+      const data = await res.json();
+      const raw  = data.choices?.[0]?.message?.content || '';
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) {
+        const r = JSON.parse(m[0]);
+        if (r.desc && r.desc.length > 5) cleaned[i].desc = r.desc;
+      }
+    } catch(e) { /* keep original on failure */ }
+  }
+  return cleaned;
+}
+
+async function fetchImageAsBase64(url){
+  try{
+    const resp=await fetch(url);if(!resp.ok)return null;
+    const blob=await resp.blob();
+    return await new Promise(resolve=>{
+      const img=new Image();
+      img.onload=()=>{
+        const canvas=document.createElement('canvas');
+        const MAX_W=1000;const scale=Math.min(1,MAX_W/img.width);
+        canvas.width=img.width*scale;canvas.height=img.height*scale;
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        resolve(canvas.toDataURL('image/jpeg',0.7));
+      };
+      img.src=URL.createObjectURL(blob);
+    });
+  }catch{return null;}
+}
+
+async function runValidation(parsedItems,itemPhotoMap,parsedHeader,siteInfo,onProgress){
+  const results=[];
+  const siteLat=siteInfo?.lat??null,siteLon=siteInfo?.lon??null;
+  const reportDate=parsedHeader.reportDate||'';
+  const total=parsedItems.length;
+  for(let i=0;i<total;i++){
+    const item=parsedItems[i];const photos=itemPhotoMap[item.num]||[];
+    const rule=TASK_RULES?.[parsedHeader.taskCategory]?.[parsedHeader.taskSubcategory]?.[item.num]??null;
+    onProgress(i+1,total);
+    if(!photos.length){results.push({row:item.num,verdict:'NO_EVIDENCE',causes:[],explanation:`No photos in folder ${item.num}`,metaList:[]});continue;}
+    const metaList=await Promise.all(photos.map(p=>extractImageMeta(p,item.num,parsedHeader.taskId)));
+    const reportDateOnly=reportDate.match(/(\d{4}-\d{2}-\d{2})/)?.[1]||'';
+    for(const m of metaList){
+      if(m.date){const diffDays=Math.abs(new Date(m.date)-new Date(reportDateOnly))/86400000;m.dateOk=diffDays<=3;m.dateLabel=m.dateOk?`✓ ${m.date}`:`✗ ${m.date}`;}
+      else{m.dateOk=false;m.dateLabel='✗ No JSON';}
+      if(siteLat!=null&&m.lat!=null){m.dist=Math.round(haversine(siteLat,siteLon,m.lat,m.lon));m.gpsOk=m.dist<=300;m.gpsLabel=m.gpsOk?`✓ On-site (${m.dist}m)`:`✗ Off-site (${m.dist}m)`;}
+      else{m.dist=null;m.gpsOk=false;m.gpsLabel='✗ GPS missing';}
+    }
+    const systemCauses=[];
+    for(const m of metaList){
+      if(!m.dateOk)systemCauses.push('IMAGE_DATE_MISMATCH');
+      if(m.gpsOk===false)systemCauses.push(m.lat==null?'IMAGE_GPS_MISSING':'IMAGE_GPS_MISMATCH');
+    }
+    const metaSummary=metaList.map(m=>`  - ${m.name}: date=${m.dateLabel}, GPS=${m.lat!=null?`${m.lat},${m.lon}`:'not found'}(${m.gpsLabel})`).join('\n');
+    try{
+      const content=[
+        {type:'text',text:buildValidationPrompt(item,photos.length,reportDate,siteLat,siteLon,metaSummary,rule,parsedHeader)},
+        ...photos.map(p=>({type:'image_url',image_url:{url:p.base64}}))
+      ];
+      const raw=await callLLM(content);
+      const match=raw.match(/\{[\s\S]*\}/);if(!match)throw new Error('No JSON in response');
+      const llmResult=JSON.parse(match[0]);
+      if(llmResult.verdict==='NO_EVIDENCE'&&photos.length>0)llmResult.verdict='DISPUTED';
+      llmResult.causes=[...new Set([...systemCauses,...(llmResult.causes||[])])];
+      results.push({...llmResult,photoCount:photos.length,metaList,photos});
+    }catch(err){
+      results.push({row:item.num,verdict:'NO_EVIDENCE',causes:[],explanation:`Validation error: ${err.message}`,metaList});
+    }
+  }
+  return results;
+}
+
+function buildValidationPrompt(item,photoCount,reportDate,siteLat,siteLon,metaSummary,rule,parsedHeader){
+  const ruleText=rule?`EXPECTED CONDITION: ${rule.expected||'-'}\nCHECKPOINTS:\n${(rule.checkpoints||[]).map(c=>'- '+c).join('\n')}\nFAIL CONDITIONS:\n${(rule.fail_if||[]).map(f=>'- '+f).join('\n')}`:'No additional rules provided.';
+  return `You are an expert AI validator for Irancell PM (Preventive Maintenance) reports.
+TASK: Validate ONE checklist item using ONLY its dedicated site photos.
+
+REPORT:
+  Task ID:     ${parsedHeader.taskId||'?'}
+  Site ID:     ${parsedHeader.siteId||'?'}
+  Report Date: ${reportDate}
+  Site GPS:    ${siteLat?`${siteLat}, ${siteLon}`:'not registered'}
+
+ITEM TO VALIDATE:
+  Row: ${item.num} | Description: ${item.desc} | Reported: ${item.result||'NO_RESULT'} | Photos: ${photoCount}
+
+ADDITIONAL VALIDATION RULES:
+${ruleText}
+
+CRITICAL DATA for latitude and longitude (TRUST ONLY THIS):
+  ${metaSummary}
+
+IMPORTANT: Date and GPS validation are already handled by the system.
+DO NOT analyze dates visible inside images, timestamps, watermarks, GPS text, or coordinates.
+Only analyze: whether the image is relevant, whether the maintenance condition matches the reported status, whether the photo quality is sufficient.
+
+Determine:
+1. VERDICT: "CONFIRMED" | "DISPUTED" | "NO_EVIDENCE"
+2. CAUSES (only applicable): "IRRELEVANT_IMAGE" | "MARKED_OK_BUT_DEFECT" | "MARKED_NOTOK_BUT_FINE" | "PHOTO_QUALITY"
+3. EXPLANATION: 1-2 sentences in persian when task written in persian and english when task written in english.
+
+Return ONLY valid JSON (no markdown):
+{"row":${item.num},"verdict":"CONFIRMED","causes":[],"explanation":"…"}`;
+}
+
+async function extractImageMeta(img,itemNum,taskId){
+  const jsonUrl=`${MINIO_BASE}/photos/${taskId}/${itemNum}/${img.name.replace(/\.[^/.]+$/,'.json')}`;
+  try{
+    const response=await fetch(jsonUrl);let text=await response.text();
+    text=text.replace(/,\s*([\]}])/g,'$1').trim();
+    const data=JSON.parse(text);
+    return {name:img.name,date:data.date||data.date_time||null,lat:parseFloat(data.lat||data.latitude)||null,lon:parseFloat(data.lng||data.longitude)||null};
+  }catch{return{name:img.name,date:null,lat:null,lon:null};}
+}
+
+/* ══ MODAL ══ */
+function openModal(idx) {
+  openModalJobIdx = idx;
+  const job = jobs[idx];
+  renderModalContent(job.parsedHeader, job.parsedItems, job.results, job.taskId, 'modalTitle','modalVerdict','modalStats','modalHeaderInfo','modalBody');
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function renderModalContent(h, parsedItems, results, titleText, titleId, verdictId, statsId, headerInfoId, bodyId) {
+  const confirmed=results.filter(r=>r.verdict==='CONFIRMED').length;
+  const disputed=results.filter(r=>r.verdict==='DISPUTED').length;
+  const total=results.length;
+  const pct=total>0?Math.round(confirmed/total*100):0;
+  document.getElementById(titleId).textContent='Report — '+(titleText||'');
+  const badge=document.getElementById(verdictId);
+  badge.className='verdict-badge '+(disputed===0?'vb-valid':'vb-invalid');
+  badge.textContent=disputed===0?'✓ Validated':'✗ Disputed';
+  document.getElementById(statsId).innerHTML=`
+    <div class="mstat"><div class="mstat-num gold">${pct}%</div><div class="mstat-lbl">Confirmation</div></div>
+    <div class="mstat"><div class="mstat-num green">${confirmed}</div><div class="mstat-lbl">Confirmed</div></div>
+    <div class="mstat"><div class="mstat-num red">${disputed}</div><div class="mstat-lbl">Disputed</div></div>
+    <div class="mstat"><div class="mstat-num">${total}</div><div class="mstat-lbl">Total Items</div></div>`;
+  document.getElementById(headerInfoId).innerHTML=`
+    <div class="hinfo-item"><div class="hinfo-label">Task ID</div><div class="hinfo-value">${escHtml(h.taskId||'-')}</div></div>
+    <div class="hinfo-item"><div class="hinfo-label">Site ID</div><div class="hinfo-value">${escHtml(h.siteId||'-')}</div></div>
+    <div class="hinfo-item"><div class="hinfo-label">Task Category</div><div class="hinfo-value">${escHtml(h.taskCategory||'-')}</div></div>
+    <div class="hinfo-item"><div class="hinfo-label">Task Subcategory</div><div class="hinfo-value">${escHtml(h.taskSubcategory||'-')}</div></div>
+    <div class="hinfo-item"><div class="hinfo-label">Report Date</div><div class="hinfo-value">${escHtml(h.reportDate||'-')}</div></div>
+    <div class="hinfo-item"><div class="hinfo-label">Report FME</div><div class="hinfo-value">${escHtml(h.fmeName||'-')}</div></div>`;
+  const causeLabels={IMAGE_DATE_MISMATCH:'Date mismatch',IMAGE_GPS_MISMATCH:'GPS mismatch',IMAGE_GPS_MISSING:'GPS missing',IRRELEVANT_IMAGE:'Irrelevant image',MARKED_OK_BUT_DEFECT:'Marked OK — defect visible',MARKED_NOTOK_BUT_FINE:'Marked Not OK — looks fine',PHOTO_QUALITY:'Poor photo quality'};
+  document.getElementById(bodyId).innerHTML=results.map(r=>{
+    const item=parsedItems.find(i=>i.num===r.row)||{};
+    const rowPhotos = r.photos || [];
+    // Store photos in global registry keyed by a unique ID so onclick can retrieve them safely
+    const pgKey = 'pg_' + r.row + '_' + Math.random().toString(36).slice(2);
+    window._lbStore = window._lbStore || {};
+    window._lbStore[pgKey] = rowPhotos;
+    const photoChecksHtml=!(r.metaList?.length)?`<span style="color:var(--gray);font-size:11px">no photos</span>`:(()=>{
+      const thumbsHtml = rowPhotos.length
+        ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">`
+          + rowPhotos.map((p,pi)=>
+            `<img class="thumb-img" src="${p.base64}" alt="${escHtml(p.name)}" title="Click to view: ${escHtml(p.name)}"
+              onclick="openLightbox(window._lbStore['${pgKey}'],${pi})"/>`
+          ).join('')
+          + `</div>`
+        : '';
+      const metaHtml = r.metaList.map(m=>`
+        <div style="margin-bottom:4px;padding:4px 7px;background:var(--surface);border-radius:6px;border:0.5px solid var(--border)">
+          <div style="font-size:10px;color:var(--gray);margin-bottom:2px;font-weight:500;font-family:var(--mono)">${escHtml(m.name)}</div>
+          <div>
+            <span class="meta-pill ${m.dateOk===true?'meta-ok':m.dateOk===false?'meta-fail':'meta-na'}">${m.dateOk===true?'✓':m.dateOk===false?'✗':'?'} ${escHtml(m.dateLabel||'')}</span>
+            <span class="meta-pill ${m.gpsOk===true?'meta-ok':m.gpsOk===false?'meta-fail':'meta-na'}">${m.gpsOk===true?'✓':m.gpsOk===false?'✗':'?'} ${escHtml(m.gpsLabel||'')}</span>
+          </div>
+        </div>`).join('');
+      return thumbsHtml + metaHtml;
+    })();
+    const causesHtml=(r.causes||[]).map(c=>`<span class="cause-tag">${causeLabels[c]||c}</span>`).join('');
+    let statusMatch='—',statusClass='meta-na';
+    const pdfOk=(item.result||'').toUpperCase()==='OK';
+    const aiConfirmed=r.verdict==='CONFIRMED';
+    if(r.verdict!=='NO_EVIDENCE'){
+      const matched=(pdfOk&&aiConfirmed)||(!pdfOk&&!aiConfirmed);
+      statusMatch=matched?'✓ Correct':'✗ Incorrect';
+      statusClass=matched?'meta-ok':'meta-fail';
+    }
+    const vclass=r.verdict==='CONFIRMED'?'vb-confirmed':r.verdict==='DISPUTED'?'vb-disputed':'vb-no-ev';
+    return `<tr>
+      <td style="color:var(--gray)">${r.row}</td>
+      <td style="font-size:11px;line-height:1.5;${/[\u0600-\u06FF]/.test(item.desc||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${escHtml(item.desc||'')}</td>
+      <td>${photoChecksHtml}</td>
+      <td><span style="font-size:11px;font-family:var(--mono)">${escHtml((item.result||'').replace('_',' '))}</span></td>
+      <td><span class="meta-pill ${statusClass}">${statusMatch}</span></td>
+      <td><span class="vbadge ${vclass}">${r.verdict}</span></td>
+      <td>${causesHtml?`<div style="margin-bottom:4px">${causesHtml}</div>`:''}<div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(r.explanation||'')}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function closeModal(){document.getElementById('modalOverlay').classList.remove('open');}
+
+document.getElementById('modalOverlay').addEventListener('click',e=>{
+  if(e.target===document.getElementById('modalOverlay'))closeModal();
+});
+
+/* ══ UTILITIES ══ */
+async function callLLM(content){
+  const res=await fetch(LLM_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:LLM_MODEL,messages:[{role:'user',content}]})});
+  const data=await res.json();
+  if(!data.choices||!data.choices.length)throw new Error('Invalid LLM response: '+JSON.stringify(data));
+  return data.choices[0].message.content;
+}
+
+function haversine(lat1,lon1,lat2,lon2){
+  const R=6371000,φ1=lat1*Math.PI/180,φ2=lat2*Math.PI/180,Δφ=(lat2-lat1)*Math.PI/180,Δλ=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(Δφ/2)**2+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function escHtml(str){
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function loadTaskRules(){
+  try{TASK_RULES=await(await fetch('task_rules.json')).json();}catch{TASK_RULES={};}
+}
+
+/* ══ LIGHTBOX ══ */
+let lbImages = [];
+let lbIndex  = 0;
+
+function openLightbox(images, startIdx) {
+  lbImages = images;
+  lbIndex  = startIdx;
+  lbShow();
+  document.getElementById('lbOverlay').classList.add('open');
+  document.addEventListener('keydown', lbKeyHandler);
+}
+
+function closeLightbox() {
+  document.getElementById('lbOverlay').classList.remove('open');
+  document.removeEventListener('keydown', lbKeyHandler);
+}
+
+function lbBgClick(e) {
+  if (e.target === document.getElementById('lbOverlay')) closeLightbox();
+}
+
+function lbNav(dir) {
+  lbIndex = (lbIndex + dir + lbImages.length) % lbImages.length;
+  lbShow();
+}
+
+function lbShow() {
+  const img = lbImages[lbIndex];
+  document.getElementById('lbImg').src = img.base64;
+  document.getElementById('lbCounter').textContent = (lbIndex + 1) + ' / ' + lbImages.length;
+  document.getElementById('lbFilename').textContent = img.name;
+  // hide nav arrows if only 1 image
+  const btns = document.querySelectorAll('.lb-btn');
+  btns.forEach(b => b.style.display = lbImages.length > 1 ? '' : 'none');
+}
+
+function lbKeyHandler(e) {
+  if (e.key === 'ArrowRight') lbNav(1);
+  if (e.key === 'ArrowLeft')  lbNav(-1);
+  if (e.key === 'Escape')     closeLightbox();
+}
+
+// folderInput listener — placed here so all functions above are already defined
+// (functions are hoisted, but referenced via function expressions would not be;
+//  all our functions use 'function' declarations so this is safe)
+document.getElementById('folderInput').addEventListener('change', function(e) {
+  const files = Array.from(e.target.files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+  if (!files.length) return;
+  const pathParts = files[0].webkitRelativePath.split('/');
+  const folderName = pathParts.length > 1 ? pathParts.slice(0,-1).join('/') : '(root)';
+  document.getElementById('dirPath').textContent = folderName + '  (' + files.length + ' PDF file' + (files.length!==1?'s':'') + ')';
+  document.getElementById('dirPath').classList.remove('empty');
+  jobs = files.map(f => ({
+    file:f, taskId:f.name.replace(/\.pdf$/i,''), status:'pending',
+    pct:0, barLabel:'Waiting…', confirmation:null,
+    results:[], parsedItems:[], parsedHeader:{},
+  }));
+  document.getElementById('summaryRow').style.display = 'grid';
+  renderJobsTable();
+  updateSummary();
+  updateGlobalBtns();
+});
+</script>
+
+<!-- ══ LIGHTBOX ══ -->
+<div class="lb-overlay" id="lbOverlay" onclick="lbBgClick(event)">
+  <button class="lb-close" onclick="closeLightbox()">✕</button>
+  <div class="lb-img-wrap">
+    <button class="lb-btn lb-prev" onclick="lbNav(-1)">&#8249;</button>
+    <img class="lb-img" id="lbImg" src="" alt=""/>
+    <button class="lb-btn lb-next" onclick="lbNav(1)">&#8250;</button>
+  </div>
+  <div class="lb-counter" id="lbCounter"></div>
+  <div class="lb-filename" id="lbFilename"></div>
+</div>
+</body>
+</html>
