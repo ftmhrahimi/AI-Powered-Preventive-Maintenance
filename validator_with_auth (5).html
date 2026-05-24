@@ -609,12 +609,99 @@ function clearSession() {
   sessionStorage.removeItem('pm_session');
 }
 
-function getUserReports(username) {
-  try { return JSON.parse(localStorage.getItem(REPORTS_PREFIX + username) || '[]'); } catch { return []; }
+/* ── Persistent DB via window.storage (artifact storage, no size limit) ──
+   Key layout:  report:{username}:{taskId}   → single report JSON
+   Index key:   report_index:{username}       → array of taskIds (for listing)
+   This avoids the 5 MB localStorage quota and keeps each report independent.
+──────────────────────────────────────────────────────────────────────── */
+
+function _reportKey(username, taskId) {
+  // keys must have no whitespace / slashes / quotes
+  const safe = String(taskId).replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+  return `report:${username}:${safe}`;
+}
+function _indexKey(username) { return `report_index:${username}`; }
+
+/** Strip heavy base64 blobs from results before saving (photos live in MinIO) */
+function _stripPhotos(results) {
+  if (!Array.isArray(results)) return results;
+  return results.map(r => {
+    const copy = Object.assign({}, r);
+    delete copy.photos;          // array of {name, base64} — can be re-fetched from MinIO
+    if (copy.metaList) copy.metaList = copy.metaList.map(m => {
+      const mc = Object.assign({}, m);
+      return mc;
+    });
+    return copy;
+  });
 }
 
-function saveUserReports(username, reports) {
-  localStorage.setItem(REPORTS_PREFIX + username, JSON.stringify(reports));
+async function getUserReports(username) {
+  if (!window.storage) return _getUserReportsLS(username);
+  try {
+    const idxRaw = await window.storage.get(_indexKey(username));
+    if (!idxRaw) return [];
+    const ids = JSON.parse(idxRaw.value);
+    const reports = [];
+    for (const taskId of ids) {
+      try {
+        const raw = await window.storage.get(_reportKey(username, taskId));
+        if (raw) reports.push(JSON.parse(raw.value));
+      } catch {}
+    }
+    return reports;
+  } catch {
+    return _getUserReportsLS(username);
+  }
+}
+
+async function saveUserReports(username, reports) {
+  if (!window.storage) { _saveUserReportsLS(username, reports); return; }
+  try {
+    // Rebuild index from the passed array (caller already spliced/unshifted)
+    const ids = reports.map(r => r.taskId).filter(Boolean);
+    await window.storage.set(_indexKey(username), JSON.stringify(ids));
+    // Upsert each report individually (stripped of photos)
+    for (const r of reports) {
+      if (!r.taskId) continue;
+      const lean = Object.assign({}, r, { results: _stripPhotos(r.results) });
+      await window.storage.set(_reportKey(username, r.taskId), JSON.stringify(lean));
+    }
+    // Delete any orphaned keys no longer in index
+    try {
+      const listed = await window.storage.list(`report:${username}:`);
+      if (listed && listed.keys) {
+        const liveKeys = new Set(ids.map(id => _reportKey(username, id)));
+        for (const k of listed.keys) {
+          if (!liveKeys.has(k)) await window.storage.delete(k);
+        }
+      }
+    } catch {}
+  } catch (err) {
+    console.warn('window.storage save failed, falling back to localStorage:', err);
+    _saveUserReportsLS(username, reports);
+  }
+}
+
+async function deleteReportByTaskId(username, taskId) {
+  if (!window.storage) return;
+  try {
+    await window.storage.delete(_reportKey(username, taskId));
+    const idxRaw = await window.storage.get(_indexKey(username));
+    if (idxRaw) {
+      const ids = JSON.parse(idxRaw.value).filter(id => id !== taskId);
+      await window.storage.set(_indexKey(username), JSON.stringify(ids));
+    }
+  } catch {}
+}
+
+/* localStorage fallbacks (used when window.storage unavailable) */
+function _getUserReportsLS(username) {
+  try { return JSON.parse(localStorage.getItem(REPORTS_PREFIX + username) || '[]'); } catch { return []; }
+}
+function _saveUserReportsLS(username, reports) {
+  try { localStorage.setItem(REPORTS_PREFIX + username, JSON.stringify(reports)); }
+  catch (e) { showToast('⚠ Storage quota exceeded. Old reports may not be saved.'); }
 }
 
 /* ── AUTH UI ── */
@@ -668,14 +755,29 @@ function doRegister() {
   startApp(user, name);
 }
 
-function startApp(username, name) {
+async function startApp(username, name) {
   currentUser = {username, name};
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('appShell').classList.add('visible');
   const initials = name.split(' ').map(n => n[0]).join('').substring(0,2).toUpperCase();
   document.getElementById('userAvatar').textContent = initials;
   document.getElementById('userLabel').textContent = name;
-  renderHistory();
+  // One-time migration: move existing localStorage reports to window.storage
+  await _migrateLocalStorageReports(username);
+  await renderHistory();
+}
+
+async function _migrateLocalStorageReports(username) {
+  if (!window.storage) return;
+  const migKey = 'pm_migrated_' + username;
+  if (localStorage.getItem(migKey)) return;  // already done
+  const lsReports = _getUserReportsLS(username);
+  if (!lsReports.length) { localStorage.setItem(migKey, '1'); return; }
+  try {
+    await saveUserReports(username, lsReports);
+    localStorage.setItem(migKey, '1');
+    showToast('✓ Reports migrated to persistent storage');
+  } catch {}
 }
 
 function doSignOut() {
@@ -692,7 +794,7 @@ function doSignOut() {
 /* Auto-restore session */
 window.addEventListener('DOMContentLoaded', () => {
   const session = getSessionUser();
-  if (session) { startApp(session.username, session.name); }
+  if (session) { startApp(session.username, session.name).catch(()=>{}); }
   loadTaskRules();
 });
 
@@ -704,18 +806,18 @@ function switchTab(tab) {
   document.getElementById('panelHistory').style.display = tab === 'history' ? '' : 'none';
   document.getElementById('tabValidator').classList.toggle('active', tab === 'validator');
   document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
-  if (tab === 'history') renderHistory();
+  if (tab === 'history') renderHistory().catch(()=>{});
 }
 
 /* ══════════════════════════════════════════════
    SAVE / HISTORY
 ══════════════════════════════════════════════ */
-function saveCurrentReport() {
+async function saveCurrentReport() {
   if (openModalJobIdx === null) return;
   const job = jobs[openModalJobIdx];
   if (!currentUser) return;
   const h = job.parsedHeader || {};
-  const reports = getUserReports(currentUser.username);
+  const reports = await getUserReports(currentUser.username);
   const report = {
     id: Date.now(),
     savedAt: new Date().toISOString(),
@@ -728,27 +830,27 @@ function saveCurrentReport() {
     fmeName: h.fmeName || '',
     parsedHeader: h,
     parsedItems: job.parsedItems,
-    results: job.results,
+    results: _stripPhotos(job.results),  // strip base64 blobs — photos re-fetched from MinIO
     confirmation: job.confirmation,
   };
   const existing = reports.findIndex(r => r.taskId === report.taskId);
   if (existing !== -1) reports.splice(existing, 1);
   reports.unshift(report);
-  saveUserReports(currentUser.username, reports);
+  await saveUserReports(currentUser.username, reports);
   showToast('✓ Report saved');
-  if (document.getElementById('panelHistory').style.display !== 'none') renderHistory();
+  if (document.getElementById('panelHistory').style.display !== 'none') await renderHistory();
 }
 
 /* ── Dashboard state ── */
 let dbSortKey = 'savedAt';
 let dbSortDir = -1;
 
-function renderHistory() {
+async function renderHistory() {
   if (!currentUser) return;
-  const reports = getUserReports(currentUser.username);
+  const reports = await getUserReports(currentUser.username);
   populateFilterDropdowns(reports);
   updateKpis(reports);
-  applyFilters();
+  await applyFilters();
 }
 
 function populateFilterDropdowns(reports) {
@@ -805,9 +907,9 @@ function getFilteredReports(reports) {
   });
 }
 
-function applyFilters() {
+async function applyFilters() {
   if (!currentUser) return;
-  const reports  = getUserReports(currentUser.username);
+  const reports  = await getUserReports(currentUser.username);
   updateKpis(reports);
   const filtered = getFilteredReports(reports);
   filtered.sort((a, b) => {
@@ -856,26 +958,28 @@ function applyFilters() {
 function dbSort(key) {
   dbSortDir = dbSortKey===key ? dbSortDir*-1 : 1;
   dbSortKey = key;
-  applyFilters();
+  applyFilters().catch(()=>{});
 }
 
 function resetFilters() {
   ['fTaskId','fSiteId','fDateFrom','fDateTo','fMinConf','fMaxConf'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   ['fCategory','fSubcategory','fFme'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
-  applyFilters();
+  applyFilters().catch(()=>{});
 }
 
-function deleteHistoryReport(idx) {
+async function deleteHistoryReport(idx) {
   if (!currentUser) return;
-  const reports = getUserReports(currentUser.username);
+  const reports = await getUserReports(currentUser.username);
+  const taskId = reports[idx]?.taskId;
   reports.splice(idx, 1);
-  saveUserReports(currentUser.username, reports);
-  renderHistory();
+  await saveUserReports(currentUser.username, reports);
+  if (taskId && window.storage) await deleteReportByTaskId(currentUser.username, taskId);
+  await renderHistory();
   showToast('Report deleted');
 }
 
-function openHistoryReport(idx) {
-  const reports = getUserReports(currentUser.username);
+async function openHistoryReport(idx) {
+  const reports = await getUserReports(currentUser.username);
   const r = reports[idx];
   renderModalContent(r.parsedHeader, r.parsedItems, r.results, r.taskId||r.fileName,
     'histModalTitle','histModalVerdict','histModalStats','histModalHeaderInfo','histModalBody');
@@ -903,14 +1007,16 @@ function showToast(msg) {
 /* ══════════════════════════════════════════════
    VALIDATOR (original logic, preserved exactly)
 ══════════════════════════════════════════════ */
-const LLM_URL   = 'http://10.130.154.133:8000/v1/chat/completions';
+// const LLM_URL   = 'http://10.130.154.133:8000/v1/chat/completions';
+//const LLM_URL = '/api/llm';
+const LLM_URL = 'http://10.224.235.31:9700/api/llm    
 const LLM_MODEL = './';
 const MINIO_BASE = 'http://10.224.235.31:9000/pm-photos';
 const BASE_PHOTO_PATH = `${MINIO_BASE}/photos/`;
 const EXTRACT_API = 'http://10.224.235.31:9700/extract';
 
 // ── Set to false to skip photo extraction and read directly from MinIO ──
-const EXTRACT_PHOTOS = true;
+const EXTRACT_PHOTOS = false;
 
 const SITES_DATA = [
   {siteId:'225-Shahrekord-BSC',lat:32.31735333333334,lon:50.861},
