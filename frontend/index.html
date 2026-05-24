@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Irancell — PM Batch Validator</title>
+  <script src="config.js"></script>
   <script src="./js/pdf.min.js">
 </script>
   <script>if(typeof pdfjsLib!=='undefined')pdfjsLib.GlobalWorkerOptions.workerSrc="./js/pdf.worker.min.js";
@@ -1007,16 +1008,12 @@ function showToast(msg) {
 /* ══════════════════════════════════════════════
    VALIDATOR (original logic, preserved exactly)
 ══════════════════════════════════════════════ */
-// const LLM_URL   = 'http://10.130.154.133:8000/v1/chat/completions';
-//const LLM_URL = '/api/llm';
-const LLM_URL = 'http://10.224.235.31:9700/api/llm    
-const LLM_MODEL = './';
-const MINIO_BASE = 'http://10.224.235.31:9000/pm-photos';
+const LLM_URL         = window.APP_CONFIG.LLM_URL;
+const LLM_MODEL       = window.APP_CONFIG.LLM_MODEL;
+const MINIO_BASE      = window.APP_CONFIG.MINIO_BASE;
 const BASE_PHOTO_PATH = `${MINIO_BASE}/photos/`;
-const EXTRACT_API = 'http://10.224.235.31:9700/extract';
-
-// ── Set to false to skip photo extraction and read directly from MinIO ──
-const EXTRACT_PHOTOS = false;
+const EXTRACT_API     = window.APP_CONFIG.EXTRACT_API;
+const EXTRACT_PHOTOS  = window.APP_CONFIG.EXTRACT_PHOTOS;
 
 const SITES_DATA = [
   {siteId:'225-Shahrekord-BSC',lat:32.31735333333334,lon:50.861},
@@ -1034,7 +1031,7 @@ let jobs = [];
 
 
 let runAllActive  = false;  // true while Run All loop is running
-let runAllAbort   = false;  // set to true by Stop to break the loop
+let runAllStopped = false;  // set to true by Stop to break the loop
 
 
 /* ── Table rendering ─────────────────────────────────────────────────── */
@@ -1140,11 +1137,11 @@ async function runAll() {
 /* ── Pause All ───────────────────────────────────────────────────────── */
 /* ── Stop All ────────────────────────────────────────────────────────── */
 function stopAll() {
-  runAllAbort = true;
+  runAllStopped = true;
+  runAllActive  = false;
   jobs.forEach((j, i) => {
     if (j.status === 'running') setJob(i, {status:'pending', pct:0, barLabel:'Stopped'});
   });
-  runAllActive = false;
   updateGlobalBtns();
 }
 
@@ -1207,17 +1204,27 @@ async function processJob(idx) {
     const siteInfo = SITES_DATA.find(s => s.siteId.toUpperCase()===(job.parsedHeader.siteId||'').toUpperCase()) || null;
       setJob(idx, {pct:40, barLabel:'Loading photos…'});
     const itemPhotoMap = {};
-    await Promise.all(job.parsedItems.map(async item => {
+
+    const PHOTO_MAX = window.APP_CONFIG.PHOTO_MAX_INDEX;
+
+    async function fetchItemPhotos(item) {
       const folderPath = `${BASE_PHOTO_PATH}${resolvedTaskId}/${item.num}/`;
       const images = [];
-      for (let i = 1; i <= 50; i++) {
+      for (let i = 1; i <= PHOTO_MAX; i++) {
         const url = `${folderPath}${i}.jpg`;
         const b64 = await fetchImageAsBase64(url);
         if (!b64) break;
-        images.push({name:`${i}.jpg`, base64:b64});
+        images.push({ name: `${i}.jpg`, base64: b64 });
       }
       if (images.length > 0) itemPhotoMap[item.num] = images;
-    }));
+    }
+
+    // Concurrency-limited parallel fetch (max 4 at a time)
+    const CONCURRENCY = 4;
+    for (let s = 0; s < job.parsedItems.length; s += CONCURRENCY) {
+      await Promise.all(job.parsedItems.slice(s, s + CONCURRENCY).map(fetchItemPhotos));
+    }
+
       setJob(idx, {pct:55, barLabel:'AI validation…'});
     const results = await runValidation(job.parsedItems, itemPhotoMap, job.parsedHeader, siteInfo, (i, total) => {
       const p = 55 + Math.round((i/total)*35);
@@ -1265,58 +1272,6 @@ async function extractTasksFromPdf(pdf, isEnglish=false) {
   return tasks;
 }
 
-/*async function extractTasksFromPdf(pdf) {
-  const tasks = []; let taskCounter = 1;
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const tc = await page.getTextContent();
-    const items = tc.items.map(it => ({ str: (it.str || '').trim(), x: it.transform[4], y: it.transform[5] })).filter(it => it.str);
-
-    const okItems = items.filter(it => /^ok$/i.test(it.str));
-    const checkboxNotOks = items.filter(it => /Not\s*Ok/i.test(it.str))
-      .filter(notOk => okItems.some(ok => Math.abs(ok.y - notOk.y) <= 10));
-    if (!checkboxNotOks.length) { page.cleanup(); continue; }
-
-    const anchorYs = checkboxNotOks.map(it => it.y).sort((a, b) => b - a);
-
-    const boundaries = anchorYs.map((anchorY, i) => {
-      // TOP: midpoint to previous anchor (or page top)
-      const top = i === 0 ? 1e5 : (anchorYs[i - 1] + anchorY) / 2;
-
-      // BOTTOM: use the anchor Y itself minus a small gap (not midpoint to next)
-      // This prevents the NEXT item's description text (which sits ABOVE the next anchor)
-      // from bleeding into THIS item's text collection
-      const bottom = anchorY - 2;   // ← key fix: stop just above the checkbox row itself
-
-      return { anchorY, top, bottom };
-    });
-
-    const strips = await getCheckboxStripImage(pdf, pageNum, anchorYs);
-    const results = await Promise.all(strips.map(detectCheckboxFromStrip));
-
-    for (let bi = 0; bi < boundaries.length; bi++) {
-      const { top, bottom, anchorY } = boundaries[bi];
-      const result = results[bi] ?? 'OK';
-
-      // Collect text that belongs to THIS item:
-      // - Must be between top and bottom boundaries
-      // - Must be ABOVE the anchor (checkbox) row, not below it
-      // - Exclude checkbox label text
-      const box = items
-        .filter(it => it.y < top && it.y > bottom)
-        .filter(it => it.y > anchorY + 2)  // ← must be above the checkbox row
-        .filter(it => !/(^|\b)(ok|not\s*ok)(\b|$)|☑|☐|✓|✗/i.test(it.str));
-
-      box.sort((a, b) => Math.abs(a.y - b.y) > 3 ? b.y - a.y : a.x - b.x); // ← RTL: sort by x ascending for Persian
-
-      const desc = box.map(it => it.str).join(' ').replace(/\s+/g, ' ').trim();
-      if (desc.length > 5) tasks.push({ num: taskCounter++, desc, result });
-    }
-    page.cleanup();
-  }
-  await pdf.destroy();
-  return tasks;
-}*/
 async function getCheckboxStripImage(pdf,pageNum,anchorYs){
   const page=await pdf.getPage(pageNum);const viewport=page.getViewport({scale:2.0});
   const canvas=document.createElement('canvas');canvas.width=viewport.width;canvas.height=viewport.height;
@@ -1362,9 +1317,7 @@ async function extractItemsWithBatching(tasks, isEnglish=false){
 }
 
 async function callLLMExtract(textChunk, isEnglish=false){
-  /*const prompt=`The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nTASK:\n1. If Persian: fix character shaping and joining.\n2. If English: fix any broken words.\n3. Extract each unique maintenance task description cleanly.\n4. Return ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean task description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do not duplicate sentences\n\nRAW TEXT:\n${textChunk}`;*/
     const prompt = isEnglish
-    // ? `Extract numbered maintenance tasks from this English text. Each item at text starts with a number like "1.", "2.", etc.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete description for that number, joined cleanly\n- result is always NOT_OK\n- One entry per number, do not split or merge numbered items\n- Ignore lines without a number prefix\nRAW TEXT:\n${textChunk}`
       ? `Extract numbered maintenance tasks from this English text. Each item starts with a number like "1.", "2.", etc.\nThe same description may appear 2-5 times repeated — pick it ONCE only.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete clean description for that number, NO repetition inside desc\n- result is always NOT_OK\n- One entry per number, never duplicate the same number\n- If the same sentence appears multiple times inside one item's text, include it only once\n- Ignore lines without a number prefix\n- Ignore lines containing only "battery wo falt darad" or "Not OK" or "OK"\nRAW TEXT:\n${textChunk}`  
     : `The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nTASK:\n1. If Persian: fix character shaping and joining.\n2. If English: fix any broken words.\n3. Extract each unique maintenance task description cleanly.\n4. Return ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean task description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do not duplicate sentences\n\nRAW TEXT:\n${textChunk}`;
   try{
@@ -1514,6 +1467,10 @@ async function runValidation(parsedItems,itemPhotoMap,parsedHeader,siteInfo,onPr
   const siteLat=siteInfo?.lat??null,siteLon=siteInfo?.lon??null;
   const reportDate=parsedHeader.reportDate||'';
   const total=parsedItems.length;
+
+  const DATE_TOL = window.APP_CONFIG.DATE_TOLERANCE_DAYS;
+  const GPS_RAD  = window.APP_CONFIG.GPS_RADIUS_METERS;
+
   for(let i=0;i<total;i++){
     const item=parsedItems[i];const photos=itemPhotoMap[item.num]||[];
     const rule=TASK_RULES?.[parsedHeader.taskCategory]?.[parsedHeader.taskSubcategory]?.[item.num]??null;
@@ -1522,9 +1479,9 @@ async function runValidation(parsedItems,itemPhotoMap,parsedHeader,siteInfo,onPr
     const metaList=await Promise.all(photos.map(p=>extractImageMeta(p,item.num,parsedHeader.taskId)));
     const reportDateOnly=reportDate.match(/(\d{4}-\d{2}-\d{2})/)?.[1]||'';
     for(const m of metaList){
-      if(m.date){const diffDays=Math.abs(new Date(m.date)-new Date(reportDateOnly))/86400000;m.dateOk=diffDays<=3;m.dateLabel=m.dateOk?`✓ ${m.date}`:`✗ ${m.date}`;}
+      if(m.date){const diffDays=Math.abs(new Date(m.date)-new Date(reportDateOnly))/86400000;m.dateOk=diffDays<=DATE_TOL;m.dateLabel=m.dateOk?`✓ ${m.date}`:`✗ ${m.date}`;}
       else{m.dateOk=false;m.dateLabel='✗ No JSON';}
-      if(siteLat!=null&&m.lat!=null){m.dist=Math.round(haversine(siteLat,siteLon,m.lat,m.lon));m.gpsOk=m.dist<=300;m.gpsLabel=m.gpsOk?`✓ On-site (${m.dist}m)`:`✗ Off-site (${m.dist}m)`;}
+      if(siteLat!=null&&m.lat!=null){m.dist=Math.round(haversine(siteLat,siteLon,m.lat,m.lon));m.gpsOk=m.dist<=GPS_RAD;m.gpsLabel=m.gpsOk?`✓ On-site (${m.dist}m)`:`✗ Off-site (${m.dist}m)`;}
       else{m.dist=null;m.gpsOk=false;m.gpsLabel='✗ GPS missing';}
     }
     const systemCauses=[];

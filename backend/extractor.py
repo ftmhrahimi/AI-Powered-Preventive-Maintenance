@@ -9,17 +9,21 @@ import requests
 import base64
 import mimetypes
 import json
-from flask_cors import CORS
 from minio import Minio
-import io
+
+from config import (
+    LLM_SERVER_URL,
+    MODEL_NAME,
+    MINIO_ENDPOINT,
+    MINIO_ACCESS_KEY,
+    MINIO_SECRET_KEY,
+    MINIO_BUCKET,
+    MINIO_SECURE,
+    PDF_DIR,
+    PROMPT_PATH
+)
 
 # ── MinIO config ──────────────────────────────────────────
-MINIO_ENDPOINT   = "10.224.235.31:9000"
-MINIO_ACCESS_KEY = "minioadmin"
-MINIO_SECRET_KEY = "1234@Qwer"
-MINIO_BUCKET     = "pm-photos"
-MINIO_SECURE     = False
-
 minio_client = Minio(
     MINIO_ENDPOINT,
     access_key=MINIO_ACCESS_KEY,
@@ -30,10 +34,8 @@ minio_client = Minio(
 if not minio_client.bucket_exists(MINIO_BUCKET):
     minio_client.make_bucket(MINIO_BUCKET)
 
-SERVER_URL = "http://10.130.154.133:8000/v1/chat/completions"
-MODEL_NAME = "./"
-pdf_dir = Path("./PM Reports")
-prompt_path = "prompt.txt"
+pdf_dir = Path(PDF_DIR)
+prompt_path = PROMPT_PATH
 
 
 def encode_image(image_path):
@@ -54,9 +56,9 @@ def load_prompt(prompt_path):
 
 def extract_fields_to_minio(pil_image, prompt_path, task_id, inspection_num, img_index):
     """Send image to model, get JSON metadata, upload JSON to MinIO."""
-    
+
     prompt = load_prompt(prompt_path)
-    
+
     # Encode PIL image to base64 (no temp file needed)
     buf = io.BytesIO()
     pil_image.save(buf, "JPEG", quality=95)
@@ -74,7 +76,7 @@ def extract_fields_to_minio(pil_image, prompt_path, task_id, inspection_num, img
         }],
     }
 
-    res = requests.post(SERVER_URL, json=payload)
+    res = requests.post(LLM_SERVER_URL, json=payload)
     res.raise_for_status()
     content = res.json()["choices"][0]["message"]["content"]
 
@@ -93,7 +95,7 @@ def extract_fields_to_minio(pil_image, prompt_path, task_id, inspection_num, img
     # Upload JSON to MinIO
     json_bytes = json.dumps(result, indent=2, ensure_ascii=False).encode("utf-8")
     json_object_name = f"photos/{task_id}/{inspection_num}/{img_index}.json"
-    
+
     minio_client.put_object(
         MINIO_BUCKET,
         json_object_name,
@@ -104,10 +106,11 @@ def extract_fields_to_minio(pil_image, prompt_path, task_id, inspection_num, img
     print(f"Uploaded JSON to MinIO: {json_object_name}")
     return result
 
+
 def taskID_extracator(docs):
 
     task_id = None
-    
+
     text = docs[0].get_text("rawdict")
     spans = []
     for block in text["blocks"]:
@@ -132,6 +135,7 @@ def taskID_extracator(docs):
                     break
 
     return task_id
+
 
 def ok_not_ok_locations(docs):
     photo_markers_by_page = {}
@@ -168,7 +172,7 @@ def ok_not_ok_locations(docs):
     for page, item in photo_markers_by_page.items():
         oks = [c['y'] for c in item if c['word'] == 'OK']
         not_oks = [c['y'] for c in item if c['word'] == 'Not OK']
-        
+
         for ok_y in oks:
             for notok_y in not_oks:
                 if abs(ok_y - notok_y) <= threshold:
@@ -194,10 +198,10 @@ def ok_not_ok_locations(docs):
 
     for item in god_list:
         page = item['page']
-        
+
         # increment FIRST
         i += 1
-        
+
         result[page].append({
             'inspection': i,
             'ok_y': item['ok_y'],
@@ -209,15 +213,16 @@ def ok_not_ok_locations(docs):
 
     return ok_notok_data
 
+
 def cropper(image):
     height = image.height
-    cropped = image.crop((0, height-300, 600, height))
+    cropped = image.crop((0, height - 300, 600, height))
     return cropped
 
 
 def image_extractor(docs, images_path, ok_notok_data, prompt_path):
 
-    #os.makedirs(images_path, exist_ok=True)
+    # os.makedirs(images_path, exist_ok=True)
 
     inspection_counters = defaultdict(int)
     last_marker = None  # track last marker across pages
@@ -263,19 +268,19 @@ def image_extractor(docs, images_path, ok_notok_data, prompt_path):
             inspection_counters[matched_inspection] += 1
             index = inspection_counters[matched_inspection]
             filename_index = f"{index}"   # just the number, e.g. "1"
-            
+
             extracted = docs.extract_image(xref)
             image_bytes = extracted["image"]
             image = Image.open(io.BytesIO(image_bytes))
             rgb = image.convert("RGB")
-            
+
             # ── Upload JPEG to MinIO ──────────────────────────────────
             img_buffer = io.BytesIO()
             rgb.save(img_buffer, "JPEG", quality=95)
             img_buffer.seek(0)
             img_size = img_buffer.getbuffer().nbytes
             object_name = f"photos/{images_path}/{matched_inspection}/{filename_index}.jpg"
-            
+
             minio_client.put_object(
                 MINIO_BUCKET,
                 object_name,
@@ -284,7 +289,7 @@ def image_extractor(docs, images_path, ok_notok_data, prompt_path):
                 content_type="image/jpeg",
             )
             print(f"Uploaded to MinIO: {object_name}")
-            
+
             # ── Extract metadata and upload JSON to MinIO ─────────────
             extract_fields_to_minio(rgb, prompt_path, images_path, matched_inspection, filename_index)
 
@@ -292,19 +297,9 @@ def image_extractor(docs, images_path, ok_notok_data, prompt_path):
         if photo_markers:
             last_marker = photo_markers[-1]
 
-# for pdf_file in pdf_dir.glob("*.pdf"):
-#     pdf_filename = pdf_file.name
-#     full_path = os.path.join(pdf_dir, pdf_filename)
-#     print("Processing:", full_path)
-#     docs = fitz.open(full_path)
-#     dir_name = taskID_extracator(docs=docs)
-#     oknotok_data = ok_not_ok_locations(docs=docs)
-#     image_extractor(docs=docs, images_path=dir_name, ok_notok_data=oknotok_data, prompt_path=prompt_path)
-
-
 
 def process_pdf(pdf_path):
-    
+
     print("Processing:", pdf_path)
 
     docs = fitz.open(pdf_path)
@@ -335,6 +330,3 @@ if __name__ == "__main__":
         full_path = os.path.join(pdf_dir, pdf_filename)
 
         process_pdf(full_path)
-
-
-

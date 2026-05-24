@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    ports:
+      - "${BACKEND_PORT:-9700}:9700"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    env_file: .env
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    environment:
+      - FRONTEND_LLM_URL=${FRONTEND_LLM_URL}
+      - FRONTEND_EXTRACT_API=${FRONTEND_EXTRACT_API}
+      - FRONTEND_MINIO_BASE=${FRONTEND_MINIO_BASE}
+      - FRONTEND_EXTRACT_PHOTOS=${FRONTEND_EXTRACT_PHOTOS}
+      - FRONTEND_LLM_MODEL=${FRONTEND_LLM_MODEL}
+      - PHOTO_MAX_INDEX=${PHOTO_MAX_INDEX}
+      - GPS_RADIUS_METERS=${GPS_RADIUS_METERS}
+      - DATE_TOLERANCE_DAYS=${DATE_TOLERANCE_DAYS}
+    restart: unless-stopped

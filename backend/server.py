@@ -1,33 +1,48 @@
 from flask import Flask, request, jsonify
 import tempfile
 import os
-import requests  # ← was missing
+import requests
 from flask_cors import CORS
 from extractor import process_pdf
+from config import LLM_SERVER_URL, BACKEND_HOST, BACKEND_PORT
 
 app = Flask(__name__)
 
-# ← This is the key fix: allow the specific origin and methods
+# Allow specific origin and methods
 CORS(app,
      resources={r"/*": {"origins": "*"}},
      supports_credentials=True,
      allow_headers=["Content-Type", "Authorization"],
      methods=["GET", "POST", "OPTIONS"])
 
+
 @app.route('/api/llm', methods=['POST', 'OPTIONS'])
 def proxy_llm():
     if request.method == 'OPTIONS':
-        return '', 204          # preflight
+        return '', 204  # preflight
     try:
         payload = request.get_json()
         resp = requests.post(
-            "http://10.130.154.133:8000/v1/chat/completions",
+            LLM_SERVER_URL,
             json=payload,
-            timeout=300
+            timeout=300,
+            stream=True  # Stream from LLM server
         )
-        return jsonify(resp.json()), resp.status_code
+
+        # Stream the response back chunk by chunk
+        def generate():
+            for chunk in resp.iter_content(chunk_size=4096):
+                if chunk:
+                    yield chunk
+
+        return app.response_class(
+            generate(),
+            status=resp.status_code,
+            headers={'Content-Type': resp.headers.get('Content-Type', 'application/json')}
+        )
     except Exception as e:
-        return jsonify({"error": str(e)}), 500  # ← was missing the 500
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route("/extract", methods=["POST", "OPTIONS"])
 def extract():
@@ -51,5 +66,6 @@ def extract():
         print("EXTRACTION ERROR:", str(e))
         return jsonify({"success": False, "error": str(e)}), 500
 
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=9700, debug=True)
+    app.run(host=BACKEND_HOST, port=BACKEND_PORT, debug=True)
