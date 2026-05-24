@@ -42,7 +42,34 @@ extractor.py → LLM server (image metadata extraction)
 | GPS_RADIUS_METERS | 300 | GPS tolerance radius in meters |
 | DATE_TOLERANCE_DAYS | 3 | Date tolerance in days |
 
-**Required to change before first run:** `LLM_SERVER_URL`, `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, and all `FRONTEND_*` URLs.
+## Deployment Scenarios
+
+### 1. Connecting to Existing External Services (MinIO / LLM)
+If MinIO and the LLM server are already running on your network (e.g., on a central server at `10.224.235.31`):
+
+1.  **Update `.env`**:
+    - Set `MINIO_ENDPOINT=10.224.235.31:9000`
+    - Set `LLM_SERVER_URL=http://10.224.235.31:8000/v1/chat/completions`
+    - Set all `FRONTEND_*` URLs to use the server's IP address so the browser can reach them.
+2.  **Run**: `docker compose up -d`
+
+### 2. Running with Local Services (Development)
+If you want to run everything on your local machine:
+
+1.  **Update `.env`**:
+    - Use `localhost` for all endpoints.
+    - Set `FRONTEND_MINIO_BASE=http://localhost:9000/pm-photos`
+2.  **Add MinIO to `docker-compose.yml`**:
+    You can add a MinIO service directly to your compose file if it's not already installed on the host.
+
+### 3. Updating Configuration (Without Rebuilding)
+The system is designed so that you can change settings without rebuilding the Docker images.
+
+- **How it works**: The `backend` reads `.env` variables at runtime. The `frontend` injects environment variables into `config.js` every time the container starts.
+- **To change a setting**:
+    1. Edit the `.env` file.
+    2. Restart the containers: `docker compose up -d`
+    - *Note: `docker compose up` automatically detects changes in `.env` and restarts affected services with the new configuration.*
 
 ## Quick Start
 1. Copy `.env.example` to `.env` and fill in your server addresses.
