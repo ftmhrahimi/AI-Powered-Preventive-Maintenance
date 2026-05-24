@@ -380,6 +380,8 @@
         <div class="dir-path empty" id="dirPath">No folder selected — click "Select Folder" to begin</div>
         <button class="btn-pick" onclick="document.getElementById('folderInput').click()">Select Folder</button>
         <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;">▶ Run All</button>
+        <button class="btn-run" id="btnPauseAll" onclick="pauseAll()" style="background:#f39c12;display:none;">⏸ Pause</button>
+        <button class="btn-run" id="btnResumeAll" onclick="resumeAll()" style="background:#1a9e55;display:none;">▶ Resume</button>
         <button class="btn-run" id="btnStopAll" onclick="stopAll()" style="background:#dc3545;display:none;">■ Stop</button>
         <input type="file" id="folderInput" webkitdirectory multiple accept=".pdf" style="display:none"/>
       </div>
@@ -1032,6 +1034,7 @@ let jobs = [];
 
 let runAllActive  = false;  // true while Run All loop is running
 let runAllStopped = false;  // set to true by Stop to break the loop
+let runAllPaused  = false;  // set to true by Pause
 
 
 /* ── Table rendering ─────────────────────────────────────────────────── */
@@ -1101,14 +1104,26 @@ function updateSummary() {
 /* ── Global buttons ──────────────────────────────────────────────────── */
 function updateGlobalBtns() {
   const hasPending = jobs.some(j => j.status === 'pending');
-  const btnRun  = document.getElementById('btnRunAll');
-  const btnStop = document.getElementById('btnStopAll');
+  const btnRun    = document.getElementById('btnRunAll');
+  const btnPause  = document.getElementById('btnPauseAll');
+  const btnResume = document.getElementById('btnResumeAll');
+  const btnStop   = document.getElementById('btnStopAll');
+
   if (runAllActive) {
-    btnRun.style.display  = 'none';
+    btnRun.style.display = 'none';
     btnStop.style.display = '';
+    if (runAllPaused) {
+      btnPause.style.display = 'none';
+      btnResume.style.display = '';
+    } else {
+      btnPause.style.display = '';
+      btnResume.style.display = 'none';
+    }
   } else {
-    btnRun.style.display  = '';
-    btnRun.disabled       = !hasPending;
+    btnRun.style.display = '';
+    btnRun.disabled = !hasPending;
+    btnPause.style.display = 'none';
+    btnResume.style.display = 'none';
     btnStop.style.display = 'none';
   }
 }
@@ -1118,26 +1133,47 @@ async function runAll() {
   if (runAllActive) return;
   runAllActive  = true;
   runAllStopped = false;
+  runAllPaused  = false;
   updateGlobalBtns();
 
   for (let i = 0; i < jobs.length; i++) {
     if (runAllStopped) break;
+
+    // Wait if paused
+    while (runAllPaused && !runAllStopped) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (runAllStopped) break;
+
     const s = jobs[i].status;
-    if (s === 'done' || s === 'running' || s === 'paused') continue;
+    if (s === 'done' || s === 'running') continue;
     if (s !== 'pending') continue;
+
     await processJob(i);
     if (runAllStopped) break;
   }
 
   runAllActive  = false;
   runAllStopped = false;
+  runAllPaused  = false;
   updateGlobalBtns();
 }
 
 /* ── Pause All ───────────────────────────────────────────────────────── */
+function pauseAll() {
+  runAllPaused = true;
+  updateGlobalBtns();
+}
+
+function resumeAll() {
+  runAllPaused = false;
+  updateGlobalBtns();
+}
+
 /* ── Stop All ────────────────────────────────────────────────────────── */
 function stopAll() {
   runAllStopped = true;
+  runAllPaused  = false;
   runAllActive  = false;
   jobs.forEach((j, i) => {
     if (j.status === 'running') setJob(i, {status:'pending', pct:0, barLabel:'Stopped'});
