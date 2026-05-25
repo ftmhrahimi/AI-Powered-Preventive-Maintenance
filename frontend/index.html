@@ -731,9 +731,9 @@ function hideAuthError() {
   document.getElementById('authError').classList.remove('show');
 }
 
-async function doLogin() {
-  const username = document.getElementById('loginUser').value.trim();
-  const password = document.getElementById('loginPass').value;
+async function doLogin(u, p) {
+  const username = u || document.getElementById('loginUser').value.trim();
+  const password = p || document.getElementById('loginPass').value;
   if (!username || !password) { showAuthError('Please fill all fields.'); return; }
   try {
     const res = await fetch('/api/auth/login', {
@@ -769,7 +769,7 @@ async function doRegister() {
     });
     const data = await res.json();
     if (data.success) {
-      doLogin();
+      await doLogin(username, password);
     } else {
       showAuthError(data.error);
     }
@@ -779,6 +779,15 @@ async function doRegister() {
 }
 
 async function startApp(user) {
+  // Clear any data from a previous session on the same machine
+  jobs = [];
+  renderJobsTable();
+  updateSummary();
+  updateGlobalBtns();
+  document.getElementById('summaryRow').style.display = 'none';
+  document.getElementById('dirPath').textContent = 'No folder selected — click "Select Folder" to begin';
+  document.getElementById('dirPath').classList.add('empty');
+
   currentUser = user;
   const { username, name, isAdmin } = user;
   document.getElementById('authScreen').style.display = 'none';
@@ -813,6 +822,7 @@ function doSignOut() {
   clearSession();
   currentUser = null;
   jobs = [];
+  document.getElementById('tabAdmin').style.display = 'none';
   document.getElementById('appShell').classList.remove('visible');
   document.getElementById('authScreen').style.display = 'flex';
   document.getElementById('loginUser').value = '';
@@ -904,7 +914,7 @@ async function renderAdmin() {
         <td style="font-size:11px;font-family:var(--mono)">${(r.reportDate || '').substring(0, 10)}</td>
         <td style="text-align:center"><div class="pct-cell ${cc}" style="font-size:13px">${conf}%</div></td>
         <td style="text-align:center">
-          <button class="btn-delete" onclick="deleteReportByTaskId('${r.owner}','${r.taskId}');renderAdmin();">🗑</button>
+          <button class="btn-delete" onclick="deleteReportByTaskId('${r.owner}','${r.taskId}').then(renderAdmin)">🗑</button>
         </td>
       </tr>`;
     }).join('');
