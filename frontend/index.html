@@ -370,6 +370,7 @@
   <div style="background:#fff;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:2px;padding:0 24px;">
     <button class="subnav-tab active" id="tabValidator" onclick="switchTab('validator')">▶ Validator</button>
     <button class="subnav-tab" id="tabHistory" onclick="switchTab('history')">📊 Dashboard</button>
+    <button class="subnav-tab" id="tabAdmin" onclick="switchTab('admin')" style="display:none;">⚙ Admin</button>
   </div>
 
   <!-- VALIDATOR TAB -->
@@ -559,6 +560,32 @@
         </div>
       </div>
     </div>
+
+    <!-- ADMIN TAB -->
+    <div id="panelAdmin" style="display:none;">
+      <div class="main-pad">
+        <div class="history-header">
+          <h2>All User Reports (Admin View)</h2>
+          <button class="btn-view" onclick="renderAdmin()">↺ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="jobs-table">
+            <thead>
+              <tr>
+                <th style="width:100px;">Owner</th>
+                <th style="width:150px;">Task ID</th>
+                <th style="width:90px;">Site ID</th>
+                <th>Category</th>
+                <th style="width:110px;">Date</th>
+                <th style="width:90px;text-align:center">Conf.</th>
+                <th style="width:80px;text-align:center">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -640,62 +667,38 @@ function _stripPhotos(results) {
 }
 
 async function getUserReports(username) {
-  if (!window.storage) return _getUserReportsLS(username);
   try {
-    const idxRaw = await window.storage.get(_indexKey(username));
-    if (!idxRaw) return [];
-    const ids = JSON.parse(idxRaw.value);
-    const reports = [];
-    for (const taskId of ids) {
-      try {
-        const raw = await window.storage.get(_reportKey(username, taskId));
-        if (raw) reports.push(JSON.parse(raw.value));
-      } catch {}
-    }
-    return reports;
-  } catch {
-    return _getUserReportsLS(username);
+    const res = await fetch(`/api/reports?username=${encodeURIComponent(username)}`);
+    return await res.json();
+  } catch (err) {
+    console.error('Failed to fetch reports:', err);
+    return [];
   }
 }
 
 async function saveUserReports(username, reports) {
-  if (!window.storage) { _saveUserReportsLS(username, reports); return; }
+  // reports[0] is always the latest one being saved/updated
+  const latest = reports[0];
+  if (!latest) return;
   try {
-    // Rebuild index from the passed array (caller already spliced/unshifted)
-    const ids = reports.map(r => r.taskId).filter(Boolean);
-    await window.storage.set(_indexKey(username), JSON.stringify(ids));
-    // Upsert each report individually (stripped of photos)
-    for (const r of reports) {
-      if (!r.taskId) continue;
-      const lean = Object.assign({}, r, { results: _stripPhotos(r.results) });
-      await window.storage.set(_reportKey(username, r.taskId), JSON.stringify(lean));
-    }
-    // Delete any orphaned keys no longer in index
-    try {
-      const listed = await window.storage.list(`report:${username}:`);
-      if (listed && listed.keys) {
-        const liveKeys = new Set(ids.map(id => _reportKey(username, id)));
-        for (const k of listed.keys) {
-          if (!liveKeys.has(k)) await window.storage.delete(k);
-        }
-      }
-    } catch {}
+    await fetch('/api/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, report: latest })
+    });
   } catch (err) {
-    console.warn('window.storage save failed, falling back to localStorage:', err);
-    _saveUserReportsLS(username, reports);
+    console.error('Failed to save report:', err);
   }
 }
 
 async function deleteReportByTaskId(username, taskId) {
-  if (!window.storage) return;
   try {
-    await window.storage.delete(_reportKey(username, taskId));
-    const idxRaw = await window.storage.get(_indexKey(username));
-    if (idxRaw) {
-      const ids = JSON.parse(idxRaw.value).filter(id => id !== taskId);
-      await window.storage.set(_indexKey(username), JSON.stringify(ids));
-    }
-  } catch {}
+    await fetch(`/api/reports?username=${encodeURIComponent(username)}&taskId=${encodeURIComponent(taskId)}`, {
+      method: 'DELETE'
+    });
+  } catch (err) {
+    console.error('Failed to delete report:', err);
+  }
 }
 
 /* localStorage fallbacks (used when window.storage unavailable) */
@@ -728,45 +731,68 @@ function hideAuthError() {
   document.getElementById('authError').classList.remove('show');
 }
 
-function doLogin() {
-  const user = document.getElementById('loginUser').value.trim();
-  const pass = document.getElementById('loginPass').value;
-  if (!user || !pass) { showAuthError('Please fill all fields.'); return; }
-  const users = getUsers();
-  if (!users[user]) { showAuthError('User not found. Please register first.'); return; }
-  const hash = hashPassword(pass);
-  if (users[user].hash !== hash) { showAuthError('Incorrect password.'); return; }
-  setSessionUser({username: user, name: users[user].name});
-  startApp(user, users[user].name);
+async function doLogin() {
+  const username = document.getElementById('loginUser').value.trim();
+  const password = document.getElementById('loginPass').value;
+  if (!username || !password) { showAuthError('Please fill all fields.'); return; }
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (data.success) {
+      setSessionUser(data.user);
+      startApp(data.user);
+    } else {
+      showAuthError(data.error);
+    }
+  } catch (err) {
+    showAuthError('Login failed. Server unreachable.');
+  }
 }
 
-function doRegister() {
+async function doRegister() {
   const name = document.getElementById('regName').value.trim();
-  const user = document.getElementById('regUser').value.trim();
-  const pass = document.getElementById('regPass').value;
+  const username = document.getElementById('regUser').value.trim();
+  const password = document.getElementById('regPass').value;
   const pass2 = document.getElementById('regPass2').value;
-  if (!name || !user || !pass || !pass2) { showAuthError('Please fill all fields.'); return; }
-  if (pass.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
-  if (pass !== pass2) { showAuthError('Passwords do not match.'); return; }
-  if (!/^[a-zA-Z0-9_]+$/.test(user)) { showAuthError('Username can only contain letters, numbers, and underscores.'); return; }
-  const users = getUsers();
-  if (users[user]) { showAuthError('Username already taken. Choose another.'); return; }
-  const hash = hashPassword(pass);
-  users[user] = {name, hash, createdAt: new Date().toISOString()};
-  saveUsers(users);
-  setSessionUser({username: user, name});
-  startApp(user, name);
+  if (!name || !username || !password || !pass2) { showAuthError('Please fill all fields.'); return; }
+  if (password.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
+  if (password !== pass2) { showAuthError('Passwords do not match.'); return; }
+  try {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, name, password })
+    });
+    const data = await res.json();
+    if (data.success) {
+      doLogin();
+    } else {
+      showAuthError(data.error);
+    }
+  } catch (err) {
+    showAuthError('Registration failed.');
+  }
 }
 
-async function startApp(username, name) {
-  currentUser = {username, name};
+async function startApp(user) {
+  currentUser = user;
+  const { username, name, isAdmin } = user;
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('appShell').classList.add('visible');
   const initials = name.split(' ').map(n => n[0]).join('').substring(0,2).toUpperCase();
   document.getElementById('userAvatar').textContent = initials;
   document.getElementById('userLabel').textContent = name;
-  // One-time migration: move existing localStorage reports to window.storage
-  await _migrateLocalStorageReports(username);
+
+  if (isAdmin) {
+    document.getElementById('tabAdmin').style.display = '';
+  } else {
+    document.getElementById('tabAdmin').style.display = 'none';
+  }
+
   await renderHistory();
 }
 
@@ -797,7 +823,7 @@ function doSignOut() {
 /* Auto-restore session */
 window.addEventListener('DOMContentLoaded', () => {
   const session = getSessionUser();
-  if (session) { startApp(session.username, session.name).catch(()=>{}); }
+  if (session) { startApp(session).catch(()=>{}); }
   loadTaskRules();
 });
 
@@ -806,10 +832,15 @@ window.addEventListener('DOMContentLoaded', () => {
 ══════════════════════════════════════════════ */
 function switchTab(tab) {
   document.getElementById('panelValidator').style.display = tab === 'validator' ? '' : 'none';
-  document.getElementById('panelHistory').style.display = tab === 'history' ? '' : 'none';
+  document.getElementById('panelHistory').style.display   = tab === 'history' ? '' : 'none';
+  document.getElementById('panelAdmin').style.display     = tab === 'admin' ? '' : 'none';
+
   document.getElementById('tabValidator').classList.toggle('active', tab === 'validator');
   document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
+  document.getElementById('tabAdmin').classList.toggle('active', tab === 'admin');
+
   if (tab === 'history') renderHistory().catch(()=>{});
+  if (tab === 'admin') renderAdmin().catch(()=>{});
 }
 
 /* ══════════════════════════════════════════════
@@ -820,7 +851,6 @@ async function saveCurrentReport() {
   const job = jobs[openModalJobIdx];
   if (!currentUser) return;
   const h = job.parsedHeader || {};
-  const reports = await getUserReports(currentUser.username);
   const report = {
     id: Date.now(),
     savedAt: new Date().toISOString(),
@@ -833,13 +863,10 @@ async function saveCurrentReport() {
     fmeName: h.fmeName || '',
     parsedHeader: h,
     parsedItems: job.parsedItems,
-    results: _stripPhotos(job.results),  // strip base64 blobs — photos re-fetched from MinIO
+    results: _stripPhotos(job.results),
     confirmation: job.confirmation,
   };
-  const existing = reports.findIndex(r => r.taskId === report.taskId);
-  if (existing !== -1) reports.splice(existing, 1);
-  reports.unshift(report);
-  await saveUserReports(currentUser.username, reports);
+  await saveUserReports(currentUser.username, [report]);
   showToast('✓ Report saved');
   if (document.getElementById('panelHistory').style.display !== 'none') await renderHistory();
 }
@@ -854,6 +881,36 @@ async function renderHistory() {
   populateFilterDropdowns(reports);
   updateKpis(reports);
   await applyFilters();
+}
+
+async function renderAdmin() {
+  if (!currentUser || !currentUser.isAdmin) return;
+  try {
+    const res = await fetch('/api/admin/reports');
+    const reports = await res.json();
+    const tbody = document.getElementById('adminTableBody');
+    if (!reports.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--gray);">No reports found across all users.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = reports.map(r => {
+      const conf = r.confirmation ?? 0;
+      const cc = conf >= 80 ? 'high' : conf >= 50 ? 'mid' : 'low';
+      return `<tr>
+        <td style="font-weight:600;color:var(--gold-dark)">${escHtml(r.owner)}</td>
+        <td style="font-family:var(--mono);font-size:11px">${escHtml(r.taskId)}</td>
+        <td style="font-family:var(--mono);font-size:11px">${escHtml(r.siteId || '—')}</td>
+        <td style="font-size:11px">${escHtml(r.taskCategory || '—')}</td>
+        <td style="font-size:11px;font-family:var(--mono)">${(r.reportDate || '').substring(0, 10)}</td>
+        <td style="text-align:center"><div class="pct-cell ${cc}" style="font-size:13px">${conf}%</div></td>
+        <td style="text-align:center">
+          <button class="btn-delete" onclick="deleteReportByTaskId('${r.owner}','${r.taskId}');renderAdmin();">🗑</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    console.error('Admin fetch failed:', err);
+  }
 }
 
 function populateFilterDropdowns(reports) {
@@ -1127,16 +1184,30 @@ async function runAll() {
   runAllStopped = false;
   updateGlobalBtns();
 
-  for (let i = 0; i < jobs.length; i++) {
-    if (runAllStopped) break;
+  // Parallel worker pool (max 3 concurrent jobs)
+  const MAX_CONCURRENT = 3;
+  const workers = Array(MAX_CONCURRENT).fill(null).map(async () => {
+    while (!runAllStopped) {
+      // Pick next pending job dynamically (handles newly added files)
+      const idx = jobs.findIndex(j => j.status === 'pending');
+      if (idx === -1) break;
 
-    const s = jobs[i].status;
-    if (s === 'done' || s === 'running') continue;
-    if (s !== 'pending') continue;
+      // Mark as running immediately to lock it
+      setJob(idx, { status: 'running', pct: 0, barLabel: 'Starting…' });
 
-    await processJob(i);
-    if (runAllStopped) break;
-  }
+      // small delay to let UI update and ensure lock is seen
+      await new Promise(r => setTimeout(r, 100));
+
+      try {
+        await processJob(idx);
+      } catch (err) {
+        console.error(`Worker error on job ${idx}:`, err);
+        setJob(idx, { status: 'error', barLabel: 'Error: ' + err.message });
+      }
+    }
+  });
+
+  await Promise.all(workers);
 
   runAllActive  = false;
   runAllStopped = false;
@@ -1172,8 +1243,12 @@ function stopAll() {
 /* ── Run single job independently ────────────────────────────────────── */
 async function runSingle(idx) {
   if (jobs[idx].status === 'running') return;
-  setJob(idx, {status:'pending', pct:0, barLabel:'Waiting…'});
-  await processJob(idx);
+  setJob(idx, { status: 'running', pct: 0, barLabel: 'Starting…' });
+  try {
+    await processJob(idx);
+  } catch (err) {
+    console.error(`Error on single job ${idx}:`, err);
+  }
   updateGlobalBtns();
 }
 function isEnglishPdf(fullText, filename) {
@@ -1185,20 +1260,21 @@ function isEnglishPdf(fullText, filename) {
 
 async function processJob(idx) {
   const job = jobs[idx];
-  await checkJobPause(idx);
-  if (EXTRACT_PHOTOS) {
-    setJob(idx, {status:'running', pct:2, barLabel:'Extracting photos...'});
-    const formData = new FormData();
-    formData.append('file', job.file);
-    const extractResp = await fetch(EXTRACT_API, {method:'POST', body:formData});
-    const extractData = await extractResp.json();
-    if (!extractData.success) throw new Error(extractData.error || 'Extraction failed');
-  } else {
-    setJob(idx, {status:'running', pct:2, barLabel:'Using existing photos from MinIO...'});
-  }
   try {
     await checkJobPause(idx);
-    setJob(idx, {status:'running', pct:5, barLabel:'Reading PDF…'});
+    if (EXTRACT_PHOTOS) {
+      setJob(idx, { status: 'running', pct: 2, barLabel: 'Extracting photos...' });
+      const formData = new FormData();
+      formData.append('file', job.file);
+      const extractResp = await fetch(EXTRACT_API, { method: 'POST', body: formData });
+      const extractData = await extractResp.json();
+      if (!extractData.success) throw new Error(extractData.error || 'Extraction failed');
+    } else {
+      setJob(idx, { status: 'running', pct: 2, barLabel: 'Using existing photos from MinIO...' });
+    }
+
+    await checkJobPause(idx);
+    setJob(idx, { status: 'running', pct: 5, barLabel: 'Reading PDF…' });
     const fileBuffer = await job.file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({
       data:fileBuffer, verbosity:0, isEvalSupported:false,
@@ -1260,10 +1336,11 @@ async function processJob(idx) {
     const confirmed = results.filter(r => r.verdict==='CONFIRMED').length;
     const total = results.length;
     const confirmation = total > 0 ? Math.round(confirmed/total*100) : 0;
-    setJob(idx, {status:'done', pct:100, barLabel:'Complete', confirmation});
+    setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation });
   } catch (err) {
     console.error('Job error:', err);
-    setJob(idx, {status:'error', pct:100, barLabel:'Failed: '+err.message});
+    setJob(idx, { status: 'error', pct: 100, barLabel: 'Failed: ' + err.message });
+    throw err; // re-throw so worker knows it failed
   }
 }
 

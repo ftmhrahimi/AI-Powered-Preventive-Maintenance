@@ -106,8 +106,15 @@ python -m http.server 8080 --directory frontend/
 Then open `http://localhost:8080`.
 Note: set `FRONTEND_LLM_URL` etc. directly in `frontend/config.js` for dev.
 
+## Admin Panel
+An administrative interface is available for managing reports across all users.
+- **Admin Username**: `admin`
+- **Admin Password**: `1234@Qwer`
+- **Features**: View reports from all users, identify report owners, and delete entries. The Admin tab appears automatically upon login with admin credentials.
+
 ## Data Flow Detail
-1. Browser reads PDF bytes, extracts text + renders checkbox strip images.
+1. Users log in or register; credentials and report data are stored in a central SQLite database on the backend, enabling access from any machine.
+2. Browser reads PDF bytes, extracts text + renders checkbox strip images.
 2. LLM detects OK/NOT_OK state for each checkbox image via `/api/llm`.
 3. LLM cleans and deduplicates item descriptions via `/api/llm`.
 4. If `EXTRACT_PHOTOS=true`, PDF is posted to `/extract` → backend extracts images and uploads to MinIO under `photos/{taskId}/{itemNum}/{index}.jpg` and parallel JSON metadata files.
@@ -135,6 +142,6 @@ pm-photos/
 - **DATE_TOLERANCE_DAYS**: max days difference between photo date and report date (default 3)
 
 ## Known Limitations / Notes
-- User accounts and saved reports are stored in browser `localStorage` / `window.storage` — they are per-browser and not shared between users or machines.
+- User accounts and saved reports are stored in a central SQLite database on the backend server.
 - MinIO and the LLM inference server are external dependencies; this repo does not include them in `docker-compose.yml`.
 - The frontend requires `pdf.js` (`pdf.min.js` + `pdf.worker.min.js`) in `frontend/js/`. These are not included in the repo due to licensing; download from [https://mozilla.github.io/pdf.js/](https://mozilla.github.io/pdf.js/).
