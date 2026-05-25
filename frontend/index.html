@@ -379,11 +379,13 @@
         <div style="width:38px;height:38px;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;">📁</div>
         <div class="dir-path empty" id="dirPath">No folder selected — click "Select Folder" to begin</div>
         <button class="btn-pick" onclick="document.getElementById('folderInput').click()">Select Folder</button>
+        <button class="btn-pick" onclick="document.getElementById('fileInput').click()" style="background:var(--surface);border:0.5px solid var(--border);color:#333;">Select Files</button>
         <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;">▶ Run All</button>
         <button class="btn-run" id="btnPauseAll" onclick="pauseAll()" style="background:#f39c12;display:none;">⏸ Pause</button>
         <button class="btn-run" id="btnResumeAll" onclick="resumeAll()" style="background:#1a9e55;display:none;">▶ Resume</button>
         <button class="btn-run" id="btnStopAll" onclick="stopAll()" style="background:#dc3545;display:none;">■ Stop</button>
         <input type="file" id="folderInput" webkitdirectory multiple accept=".pdf" style="display:none"/>
+        <input type="file" id="fileInput" multiple accept=".pdf" style="display:none"/>
       </div>
 
       <div class="summary-row" id="summaryRow" style="display:none">
@@ -1060,7 +1062,11 @@ function buildJobRow(job, idx) {
 
   let ctlHtml = '';
   if (job.status === 'running') {
-    ctlHtml = `<button class="btn-job-run" disabled>Running…</button>`;
+    if (job.paused) {
+      ctlHtml = `<button class="btn-job-run" onclick="resumeJob(${idx})" style="background:#e8f5ee;color:#1a7a45;">▶ Resume</button>`;
+    } else {
+      ctlHtml = `<button class="btn-job-run" onclick="pauseJob(${idx})" style="background:#fff7e6;color:#d4a017;border-color:#ffe7ba;">⏸ Pause</button>`;
+    }
   } else if (job.status === 'done' || job.status === 'error') {
     ctlHtml = `<button class="btn-job-run" onclick="runSingle(${idx})">↺ Re-run</button>`;
   } else {
@@ -1170,6 +1176,22 @@ function resumeAll() {
   updateGlobalBtns();
 }
 
+async function pauseJob(idx) {
+  jobs[idx].paused = true;
+  setJob(idx, { barLabel: 'Paused' });
+}
+
+async function resumeJob(idx) {
+  jobs[idx].paused = false;
+  setJob(idx, { barLabel: 'Running…' });
+}
+
+async function checkJobPause(idx) {
+  while ((jobs[idx].paused || runAllPaused) && !runAllStopped) {
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
+
 /* ── Stop All ────────────────────────────────────────────────────────── */
 function stopAll() {
   runAllStopped = true;
@@ -1197,6 +1219,7 @@ function isEnglishPdf(fullText, filename) {
 
 async function processJob(idx) {
   const job = jobs[idx];
+  await checkJobPause(idx);
   if (EXTRACT_PHOTOS) {
     setJob(idx, {status:'running', pct:2, barLabel:'Extracting photos...'});
     const formData = new FormData();
@@ -1208,7 +1231,8 @@ async function processJob(idx) {
     setJob(idx, {status:'running', pct:2, barLabel:'Using existing photos from MinIO...'});
   }
   try {
-      setJob(idx, {status:'running', pct:5, barLabel:'Reading PDF…'});
+    await checkJobPause(idx);
+    setJob(idx, {status:'running', pct:5, barLabel:'Reading PDF…'});
     const fileBuffer = await job.file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({
       data:fileBuffer, verbosity:0, isEvalSupported:false,
@@ -1265,7 +1289,7 @@ async function processJob(idx) {
     const results = await runValidation(job.parsedItems, itemPhotoMap, job.parsedHeader, siteInfo, (i, total) => {
       const p = 55 + Math.round((i/total)*35);
       setJob(idx, {pct:p, barLabel:`Validating ${i}/${total}…`});
-    });
+    }, idx);
     job.results = results;
     const confirmed = results.filter(r => r.verdict==='CONFIRMED').length;
     const total = results.length;
@@ -1498,7 +1522,7 @@ async function fetchImageAsBase64(url){
   }catch{return null;}
 }
 
-async function runValidation(parsedItems,itemPhotoMap,parsedHeader,siteInfo,onProgress){
+async function runValidation(parsedItems,itemPhotoMap,parsedHeader,siteInfo,onProgress, jobIdx){
   const results=[];
   const siteLat=siteInfo?.lat??null,siteLon=siteInfo?.lon??null;
   const reportDate=parsedHeader.reportDate||'';
@@ -1508,6 +1532,7 @@ async function runValidation(parsedItems,itemPhotoMap,parsedHeader,siteInfo,onPr
   const GPS_RAD  = window.APP_CONFIG.GPS_RADIUS_METERS;
 
   for(let i=0;i<total;i++){
+    if (jobIdx !== undefined) await checkJobPause(jobIdx);
     const item=parsedItems[i];const photos=itemPhotoMap[item.num]||[];
     const rule=TASK_RULES?.[parsedHeader.taskCategory]?.[parsedHeader.taskSubcategory]?.[item.num]??null;
     onProgress(i+1,total);
@@ -1735,26 +1760,36 @@ function lbKeyHandler(e) {
   if (e.key === 'Escape')     closeLightbox();
 }
 
-// folderInput listener — placed here so all functions above are already defined
-// (functions are hoisted, but referenced via function expressions would not be;
-//  all our functions use 'function' declarations so this is safe)
-document.getElementById('folderInput').addEventListener('change', function(e) {
-  const files = Array.from(e.target.files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
-  if (!files.length) return;
-  const pathParts = files[0].webkitRelativePath.split('/');
-  const folderName = pathParts.length > 1 ? pathParts.slice(0,-1).join('/') : '(root)';
-  document.getElementById('dirPath').textContent = folderName + '  (' + files.length + ' PDF file' + (files.length!==1?'s':'') + ')';
-  document.getElementById('dirPath').classList.remove('empty');
-  jobs = files.map(f => ({
-    file:f, taskId:f.name.replace(/\.pdf$/i,''), status:'pending',
-    pct:0, barLabel:'Waiting…', confirmation:null,
-    results:[], parsedItems:[], parsedHeader:{},
+function handleFiles(newFiles) {
+  const pdfs = Array.from(newFiles).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+  if (!pdfs.length) return;
+
+  const newJobs = pdfs.map(f => ({
+    file: f,
+    taskId: f.name.replace(/\.pdf$/i, ''),
+    status: 'pending',
+    pct: 0,
+    barLabel: 'Waiting…',
+    confirmation: null,
+    results: [],
+    parsedItems: [],
+    parsedHeader: {},
+    paused: false
   }));
+
+  jobs = jobs.concat(newJobs);
+
+  document.getElementById('dirPath').textContent = `${jobs.length} PDF file${jobs.length !== 1 ? 's' : ''} loaded`;
+  document.getElementById('dirPath').classList.remove('empty');
   document.getElementById('summaryRow').style.display = 'grid';
+
   renderJobsTable();
   updateSummary();
   updateGlobalBtns();
-});
+}
+
+document.getElementById('folderInput').addEventListener('change', e => handleFiles(e.target.files));
+document.getElementById('fileInput').addEventListener('change', e => handleFiles(e.target.files));
 </script>
 
 <!-- ══ LIGHTBOX ══ -->

@@ -54,15 +54,26 @@ If MinIO and the LLM server are already running on your network (e.g., on a cent
 2.  **Run**: `docker compose up -d`
 
 ### 2. Running with Local Services (Development)
-If you want to run everything on your local machine:
+If you want to run everything on your local machine, including MinIO:
 
 1.  **Update `.env`**:
     - Use `localhost` for all endpoints.
     - Set `FRONTEND_MINIO_BASE=http://localhost:9000/pm-photos`
-2.  **Add MinIO to `docker-compose.yml`**:
-    You can add a MinIO service directly to your compose file if it's not already installed on the host.
+2.  **Update `docker-compose.yml`**:
+    Add the MinIO service to the `services` section:
+    ```yaml
+    minio:
+      image: minio/minio
+      ports:
+        - "9000:9000"
+        - "9001:9001"
+      environment:
+        MINIO_ROOT_USER: minioadmin
+        MINIO_ROOT_PASSWORD: minioadmin
+      command: server /data --console-address ":9001"
+    ```
 
-### 3. Updating Configuration (Without Rebuilding)
+### 3. Updating Configuration (Using existing images)
 The system is designed so that you can change settings without rebuilding the Docker images.
 
 - **How it works**: The `backend` reads `.env` variables at runtime. The `frontend` injects environment variables into `config.js` every time the container starts.
