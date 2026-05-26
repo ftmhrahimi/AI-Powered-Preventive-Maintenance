@@ -44,6 +44,16 @@ def init_db():
         )
     ''')
 
+    # Active jobs table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS active_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            job_data_json TEXT NOT NULL,
+            FOREIGN KEY (username) REFERENCES users(username)
+        )
+    ''')
+
     # Create admin user if not exists
     admin_user = "admin"
     admin_pass = "1234@Qwer"
@@ -154,3 +164,26 @@ def delete_report(username, task_id):
     )
     conn.commit()
     conn.close()
+
+def save_active_jobs(username, jobs):
+    conn = get_db()
+    conn.execute("DELETE FROM active_jobs WHERE username = ?", (username,))
+    for job in jobs:
+        # We don't save the actual File object as it can't be JSON serialized
+        # but we save metadata. In a real persistence scenario, the file would be on server.
+        # For now, we save everything else to restore status.
+        conn.execute(
+            "INSERT INTO active_jobs (username, job_data_json) VALUES (?, ?)",
+            (username, json.dumps(job))
+        )
+    conn.commit()
+    conn.close()
+
+def get_active_jobs(username):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT job_data_json FROM active_jobs WHERE username = ?",
+        (username,)
+    ).fetchall()
+    conn.close()
+    return [json.loads(r['job_data_json']) for r in rows]
