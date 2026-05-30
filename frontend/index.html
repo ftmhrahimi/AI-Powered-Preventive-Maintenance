@@ -363,6 +363,10 @@
         <div class="user-avatar" id="userAvatar">?</div>
         <span id="userLabel">—</span>
       </div>
+      <div id="llmHealthPill" class="user-pill" style="border-color:var(--gray); color:var(--gray);">
+        <span id="llmHealthIcon">⚪</span>
+        <span id="llmHealthText">LLM Unknown</span>
+      </div>
       <button class="btn-signout" onclick="doSignOut()">Sign Out</button>
     </div>
   </nav>
@@ -877,7 +881,32 @@ window.addEventListener('DOMContentLoaded', () => {
   const session = getSessionUser();
   if (session) { startApp(session).catch(()=>{}); }
   loadTaskRules();
+  checkLlmHealth();
+  setInterval(checkLlmHealth, 30000);
 });
+
+async function checkLlmHealth() {
+  try {
+    const res = await fetch('/health');
+    const data = await res.json();
+    const pill = document.getElementById('llmHealthPill');
+    const icon = document.getElementById('llmHealthIcon');
+    const text = document.getElementById('llmHealthText');
+    if (data.llm && data.llm.available) {
+      pill.style.borderColor = 'var(--green)';
+      pill.style.color = 'var(--green)';
+      icon.textContent = '🟢';
+      text.textContent = 'LLM Online';
+    } else {
+      pill.style.borderColor = 'var(--red)';
+      pill.style.color = 'var(--red)';
+      icon.textContent = '🔴';
+      text.textContent = 'LLM Offline';
+    }
+  } catch (err) {
+    console.error('Failed to check LLM health:', err);
+  }
+}
 
 /* ══════════════════════════════════════════════
    TABS
@@ -1448,6 +1477,21 @@ async function processJob(idx) {
     const confirmed = results.filter(r => r.verdict==='CONFIRMED').length;
     const total = results.length;
     const confirmation = total > 0 ? Math.round(confirmed/total*100) : 0;
+
+    // Check LLM health after processing completes
+    try {
+      const hRes = await fetch('/health');
+      const hData = await hRes.json();
+      if (hData.llm && !hData.llm.available) {
+        const warningHtml = `
+          <div style="background:var(--red-bg); color:var(--red); padding:12px; border-radius:8px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; font-size:13px; font-weight:500; border:0.5px solid rgba(220,53,69,0.2);">
+            <span>⚠️ Warning: the LLM server was unavailable during processing. Some validation results may be unreliable.</span>
+            <button onclick="this.parentElement.remove()" style="background:none; border:none; color:var(--red); cursor:pointer; font-size:16px;">✕</button>
+          </div>`;
+        document.getElementById('modalStats').insertAdjacentHTML('beforebegin', warningHtml);
+      }
+    } catch (e) {}
+
     setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation });
   } catch (err) {
     console.error('Job error:', err);

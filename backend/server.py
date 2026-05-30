@@ -13,8 +13,16 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from extractor import process_pdf
-from config import LLM_SERVER_URL, BACKEND_HOST, BACKEND_PORT
+from config import LLM_SERVER_URL as CONFIG_LLM_URL, BACKEND_HOST, BACKEND_PORT
 from db import init_db, register_user, login_user, save_report, get_user_reports, get_all_reports, delete_report
+
+LLM_SERVER_URL = os.environ.get("LLM_SERVER_URL", CONFIG_LLM_URL)
+LLM_MAX_RETRIES = 3
+LLM_RETRY_DELAY = 2.0
+LLM_TIMEOUT_SECONDS = 120
+
+LLM_HEALTH = {"available": True, "last_failure": None, "last_success": None}
+LLM_HEALTH_LOCK = threading.Lock()
 
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
@@ -50,6 +58,41 @@ def init_audit_db():
         conn.commit()
 
 init_audit_db()
+
+def call_llm_with_retry(payload):
+    last_error = None
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
+        try:
+            resp = requests.post(
+                LLM_SERVER_URL,
+                json=payload,
+                timeout=LLM_TIMEOUT_SECONDS
+            )
+            resp.raise_for_status()
+            with LLM_HEALTH_LOCK:
+                LLM_HEALTH["available"] = True
+                LLM_HEALTH["last_success"] = datetime.now(timezone.utc).isoformat()
+            return resp.json()
+        except requests.exceptions.Timeout:
+            last_error = f"Timeout on attempt {attempt}"
+            logger.warning(f"LLM timeout (attempt {attempt}/{LLM_MAX_RETRIES})")
+        except requests.exceptions.ConnectionError:
+            last_error = f"Connection error on attempt {attempt}"
+            logger.warning(f"LLM connection error (attempt {attempt}/{LLM_MAX_RETRIES})")
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"LLM error (attempt {attempt}/{LLM_MAX_RETRIES}): {e}")
+
+        if attempt < LLM_MAX_RETRIES:
+            time.sleep(LLM_RETRY_DELAY)
+
+    with LLM_HEALTH_LOCK:
+        LLM_HEALTH["available"] = False
+        LLM_HEALTH["last_failure"] = datetime.now(timezone.utc).isoformat()
+
+    logger.error(f"LLM failed after {LLM_MAX_RETRIES} attempts: {last_error}")
+    log_event("LLM_FAILURE", detail=last_error, status="failed")
+    raise RuntimeError(f"LLM unavailable after {LLM_MAX_RETRIES} attempts: {last_error}")
 
 def log_event(event_type, detail=None, username=None,
               ip_address=None, job_id=None, task_id=None, status=None):
@@ -130,7 +173,10 @@ limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour", "
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "ok"}), 200
+    return jsonify({
+        "status": "ok",
+        "llm": LLM_HEALTH
+    }), 200
 
 @app.route('/api/llm', methods=['POST', 'OPTIONS'])
 @limiter.limit("60 per minute")
