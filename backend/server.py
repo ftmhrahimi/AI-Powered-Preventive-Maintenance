@@ -135,20 +135,55 @@ def run_job(job_id, tmp_path):
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-def cleanup_jobs():
+
+def check_llm_server_health():
+    # Attempt to ping the /health endpoint of the LLM server
+    # Based on user input, it returns 200 OK even if content is 0
+    try:
+        # Extract base URL from LLM_SERVER_URL
+        from urllib.parse import urlparse
+        parsed = urlparse(LLM_SERVER_URL)
+        health_url = f"{parsed.scheme}://{parsed.netloc}/health"
+
+        resp = requests.get(health_url, timeout=5)
+        available = resp.status_code == 200
+
+        with LLM_HEALTH_LOCK:
+            LLM_HEALTH["available"] = available
+            if available:
+                LLM_HEALTH["last_success"] = datetime.now(timezone.utc).isoformat()
+            else:
+                LLM_HEALTH["last_failure"] = datetime.now(timezone.utc).isoformat()
+    except Exception as e:
+        with LLM_HEALTH_LOCK:
+            LLM_HEALTH["available"] = False
+            LLM_HEALTH["last_failure"] = datetime.now(timezone.utc).isoformat()
+
+def background_maintenance():
+    last_health_check = 0
     while True:
-        time.sleep(1800)  # 30 minutes
-        now = datetime.now(timezone.utc)
+        now_ts = time.time()
+
+        # Every 30 seconds check LLM health
+        if now_ts - last_health_check > 30:
+            check_llm_server_health()
+            last_health_check = now_ts
+
+        # Every 30 minutes clean up jobs
+        # (This is a bit simplified, but fine for a daemon thread)
+        now_dt = datetime.now(timezone.utc)
         with JOB_REGISTRY_LOCK:
             to_delete = []
             for job_id, job in JOB_REGISTRY.items():
-                age = now - job["submitted_at"]
+                age = now_dt - job["submitted_at"]
                 if age.total_seconds() > 7200:  # 2 hours
                     to_delete.append(job_id)
             for job_id in to_delete:
                 del JOB_REGISTRY[job_id]
 
-threading.Thread(target=cleanup_jobs, daemon=True).start()
+        time.sleep(10)
+
+threading.Thread(target=background_maintenance, daemon=True).start()
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
