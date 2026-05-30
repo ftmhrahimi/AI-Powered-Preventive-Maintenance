@@ -370,6 +370,7 @@
   <div id="subnav" class="subnav" style="display:none;">
     <button class="subnav-tab active" id="tabValidator" onclick="switchTab('validator')">▶ Validator</button>
     <button class="subnav-tab" id="tabHistory" onclick="switchTab('history')">📊 Dashboard</button>
+    <button class="subnav-tab" id="tabAudit" onclick="switchTab('audit')">📜 Audit Log</button>
     <button class="subnav-tab" id="tabAdmin" onclick="switchTab('admin')" style="display:none;">⚙ System Admin</button>
   </div>
 
@@ -584,6 +585,38 @@
           </thead>
           <tbody id="adminTableBody"></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Audit Log Tab -->
+    <div id="panelAudit" style="display:none;">
+      <div class="main-pad">
+        <div class="history-header">
+          <h2>System Audit Log</h2>
+          <div style="display:flex;gap:10px;">
+            <input type="text" id="auditFilterUser" placeholder="User..." class="db-filter-input" style="width:120px;">
+            <input type="text" id="auditFilterEvent" placeholder="Event Type..." class="db-filter-input" style="width:150px;">
+            <button class="btn-view" onclick="loadAuditLog()" style="background:var(--gold);font-weight:600;">Apply Filters</button>
+            <button class="btn-view" onclick="loadAuditLog()">↺ Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="jobs-table">
+            <thead>
+              <tr>
+                <th style="width:160px;">Time (UTC)</th>
+                <th style="width:100px;">User</th>
+                <th style="width:140px;">Event</th>
+                <th style="width:100px;">Job ID</th>
+                <th style="width:100px;">Task ID</th>
+                <th style="width:80px;">Status</th>
+                <th>Detail</th>
+                <th style="width:110px;">IP Address</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -852,13 +885,16 @@ window.addEventListener('DOMContentLoaded', () => {
 function switchTab(tab) {
   document.getElementById('panelValidator').style.display = tab === 'validator' ? '' : 'none';
   document.getElementById('panelHistory').style.display   = tab === 'history' ? '' : 'none';
+  document.getElementById('panelAudit').style.display     = tab === 'audit' ? '' : 'none';
   document.getElementById('panelAdmin').style.display     = tab === 'admin' ? '' : 'none';
 
   document.getElementById('tabValidator').classList.toggle('active', tab === 'validator');
   document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
+  document.getElementById('tabAudit').classList.toggle('active', tab === 'audit');
   document.getElementById('tabAdmin').classList.toggle('active', tab === 'admin');
 
   if (tab === 'history') renderHistory().catch(()=>{});
+  if (tab === 'audit') loadAuditLog().catch(()=>{});
   if (tab === 'admin') renderAdmin().catch(()=>{});
 }
 
@@ -929,6 +965,39 @@ async function renderAdmin() {
     }).join('');
   } catch (err) {
     console.error('Admin fetch failed:', err);
+  }
+}
+
+async function loadAuditLog() {
+  const user = document.getElementById('auditFilterUser').value.trim();
+  const event = document.getElementById('auditFilterEvent').value.trim();
+  let url = '/audit?';
+  if (user) url += `username=${encodeURIComponent(user)}&`;
+  if (event) url += `event_type=${encodeURIComponent(event)}&`;
+
+  try {
+    const res = await fetch(url);
+    const logs = await res.json();
+    const tbody = document.getElementById('auditTableBody');
+    if (!logs.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--gray);">No audit events found.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = logs.map(l => {
+      const ts = l.timestamp.replace('T', ' ').substring(0, 19);
+      return `<tr>
+        <td style="font-family:var(--mono);font-size:11px;">${ts}</td>
+        <td style="font-weight:600;">${escHtml(l.username || '—')}</td>
+        <td style="font-size:11px;"><code>${l.event_type}</code></td>
+        <td style="font-family:var(--mono);font-size:10px;">${l.job_id ? l.job_id.substring(0, 8) : '—'}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${escHtml(l.task_id || '—')}</td>
+        <td style="text-align:center;"><span class="vbadge ${l.status === 'success' ? 'vb-confirmed' : l.status === 'failed' ? 'vb-disputed' : 'vb-no-ev'}">${l.status || '—'}</span></td>
+        <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(l.detail || '')}">${escHtml(l.detail || '—')}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${l.ip_address || '—'}</td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    console.error('Audit fetch failed:', err);
   }
 }
 
@@ -1281,19 +1350,43 @@ async function processJob(idx) {
   const job = jobs[idx];
   try {
     await checkJobPause(idx);
+
     if (EXTRACT_PHOTOS) {
-      setJob(idx, { status: 'running', pct: 2, barLabel: 'Extracting photos...' });
+      setJob(idx, { status: 'running', pct: 2, barLabel: 'Submitting PDF...' });
       const formData = new FormData();
       formData.append('file', job.file);
       const extractResp = await fetch(EXTRACT_API, { method: 'POST', body: formData });
       const extractData = await extractResp.json();
-      if (!extractData.success) throw new Error(extractData.error || 'Extraction failed');
+      if (!extractData.success) throw new Error(extractData.error || 'Submission failed');
+
+      const job_id = extractData.job_id;
+      let jobStatus = 'pending';
+
+      // Start polling /job/<job_id>
+      while (jobStatus === 'pending' || jobStatus === 'running') {
+        await checkJobPause(idx);
+        if (runAllStopped) return;
+
+        const pollResp = await fetch(`/job/${job_id}`);
+        const pollData = await pollResp.json();
+
+        jobStatus = pollData.status;
+        if (jobStatus === 'failed') throw new Error(pollData.error || 'Extraction failed on server');
+
+        setJob(idx, {
+          pct: Math.max(5, pollData.progress_pct),
+          barLabel: pollData.progress_label || (jobStatus === 'running' ? 'Extracting...' : 'Waiting...')
+        });
+
+        if (jobStatus === 'done') break;
+        await new Promise(r => setTimeout(r, 3000));
+      }
     } else {
       setJob(idx, { status: 'running', pct: 2, barLabel: 'Using existing photos from MinIO...' });
     }
 
     await checkJobPause(idx);
-    setJob(idx, { status: 'running', pct: 5, barLabel: 'Reading PDF…' });
+    setJob(idx, { status: 'running', pct: 15, barLabel: 'Reading PDF…' });
     const fileBuffer = await job.file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({
       data:fileBuffer, verbosity:0, isEvalSupported:false,
