@@ -63,7 +63,7 @@
     .auth-input:focus{border-color:rgba(255,204,0,.5);}
     .auth-input::placeholder{color:rgba(255,255,255,.25);}
     .auth-btn{
-      width:100%;padding:13px;background:var(--gold);border:none;border-radius:9px;
+      width:100%;padding:13px;background:var(--gold);border:none;border-radius:99px;
       font-size:14px;font-weight:600;color:#1a1200;cursor:pointer;
       transition:all .2s;margin-top:8px;font-family:var(--font);
     }
@@ -1450,62 +1450,6 @@ async function callLLMExtract(textChunk, isEnglish=false){
   }catch{return[];}
 }
 
-// async function cleanConsecutiveTasks(items) {
-//   // Check each consecutive pair: if task[i] contains task[i+1]'s text, remove it from task[i]
-//   if (items.length < 2) return items;
-//   const cleaned = items.map(it => ({...it}));
-//   for (let i = 0; i < cleaned.length - 1; i++) {
-//     const curr = cleaned[i];
-//     const next = cleaned[i + 1];
-//     if (!curr.desc || !next.desc) continue;
-
-//     // Quick JS check first: if next task text appears inside current task text
-//     // Use a significant overlap threshold (>30 chars) to avoid false positives
-//     const nextShort = next.desc.replace(/\s+/g,' ').trim();
-//     const currShort = curr.desc.replace(/\s+/g,' ').trim();
-//     if (nextShort.length < 15) continue;  // too short to check
-
-//     // Check if a significant portion of next.desc appears in curr.desc
-//     const overlapLen = 30;
-//     const nextSample = nextShort.substring(0, overlapLen);
-//     if (!currShort.includes(nextSample)) continue;  // no overlap, skip LLM call
-
-//     // Overlap detected — ask LLM to clean it
-//     try {
-//       const prompt = `You are cleaning extracted text from a Persian/English maintenance report PDF.
-// Task ${curr.num} text below incorrectly contains text that belongs to task ${next.num}.
-// Remove ONLY the part of task ${curr.num} that belongs to task ${next.num}.
-// Keep task ${curr.num}'s own text intact.
-
-// Task ${curr.num} (may contain extra text from task ${next.num}):
-// ${curr.desc}
-
-// Task ${next.num} (correct text for reference):
-// ${next.desc}
-
-// Return ONLY a JSON object, no markdown:
-// {"num":${curr.num},"desc":"cleaned text of task ${curr.num} only"}`;
-
-//       const res = await fetch(LLM_URL, {
-//         method: 'POST',
-//         headers: {'Content-Type':'application/json'},
-//         body: JSON.stringify({model:LLM_MODEL, messages:[{role:'user',content:prompt}], temperature:0})
-//       });
-//       if (!res.ok) continue;
-//       const data = await res.json();
-//       const raw = data.choices?.[0]?.message?.content || '';
-//       const match = raw.match(/\{[\s\S]*\}/);
-//       if (match) {
-//         const result = JSON.parse(match[0]);
-//         if (result.desc && result.desc.length > 5) {
-//           cleaned[i].desc = result.desc;
-//         }
-//       }
-//     } catch(e) { /* keep original if LLM fails */ }
-//   }
-//   return cleaned;
-// }
-
 async function cleanConsecutiveTasks(items) {
   if (items.length < 2) return items;
   const cleaned = items.map(it => ({...it}));
@@ -1591,7 +1535,7 @@ async function runValidation(parsedItems,itemPhotoMap,parsedHeader,siteInfo,onPr
   const total=parsedItems.length;
 
   const DATE_TOL = window.APP_CONFIG.DATE_TOLERANCE_DAYS;
-  const GPS_RAD  = window.APP_CONFIG.GPS_RADIUS_METERS;
+  const GPS_RADIUS = window.APP_CONFIG.GPS_RADIUS_METERS;
 
   for(let i=0;i<total;i++){
     if (jobIdx !== undefined) await checkJobPause(jobIdx);
@@ -1604,7 +1548,7 @@ async function runValidation(parsedItems,itemPhotoMap,parsedHeader,siteInfo,onPr
     for(const m of metaList){
       if(m.date){const diffDays=Math.abs(new Date(m.date)-new Date(reportDateOnly))/86400000;m.dateOk=diffDays<=DATE_TOL;m.dateLabel=m.dateOk?`✓ ${m.date}`:`✗ ${m.date}`;}
       else{m.dateOk=false;m.dateLabel='✗ No JSON';}
-      if(siteLat!=null&&m.lat!=null){m.dist=Math.round(haversine(siteLat,siteLon,m.lat,m.lon));m.gpsOk=m.dist<=GPS_RAD;m.gpsLabel=m.gpsOk?`✓ On-site (${m.dist}m)`:`✗ Off-site (${m.dist}m)`;}
+      if(siteLat!=null&&m.lat!=null){m.dist=Math.round(haversine(siteLat,siteLon,m.lat,m.lon));m.gpsOk=m.dist<=GPS_RADIUS;m.gpsLabel=m.gpsOk?`✓ On-site (${m.dist}m)`:`✗ Off-site (${m.dist}m)`;}
       else{m.dist=null;m.gpsOk=false;m.gpsLabel='✗ GPS missing';}
     }
     const systemCauses=[];

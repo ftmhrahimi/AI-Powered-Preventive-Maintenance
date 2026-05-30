@@ -1,13 +1,15 @@
-version: "3.9"
-
+version: '3.8'
 services:
   backend:
     build: ./backend
     env_file: .env
     ports:
       - "${BACKEND_PORT:-9700}:9700"
+    environment:
+      - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-*}
+    volumes:
+      - ./backend/logs:/app/logs
     restart: unless-stopped
-
   frontend:
     build: ./frontend
     env_file: .env

@@ -2,23 +2,49 @@ from flask import Flask, request, jsonify
 import tempfile
 import os
 import requests
+import logging
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from extractor import process_pdf
 from config import LLM_SERVER_URL, BACKEND_HOST, BACKEND_PORT
 from db import init_db, register_user, login_user, save_report, get_user_reports, get_all_reports, delete_report
 
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+    handlers=[logging.StreamHandler(), logging.FileHandler("logs/app.log")]
+)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 init_db()
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({"success": False, "error": "File too large. Max 50MB."}), 413
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    return jsonify({"success": False, "error": "Internal server error."}), 500
 
 # Allow specific origin and methods
 CORS(app,
-     resources={r"/*": {"origins": "*"}},
+     resources={r"/*": {"origins": os.getenv("ALLOWED_ORIGIN", "*")}},
      supports_credentials=True,
      allow_headers=["Content-Type", "Authorization"],
      methods=["GET", "POST", "OPTIONS"])
 
+limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour", "30 per minute"])
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok"}), 200
 
 @app.route('/api/llm', methods=['POST', 'OPTIONS'])
+@limiter.limit("60 per minute")
 def proxy_llm():
     if request.method == 'OPTIONS':
         return '', 204  # preflight
@@ -47,25 +73,26 @@ def proxy_llm():
 
 
 @app.route("/extract", methods=["POST", "OPTIONS"])
+@limiter.limit("10 per minute")
 def extract():
     if request.method == 'OPTIONS':
         return '', 204
-    print("\n========================")
-    print("NEW EXTRACTION REQUEST")
-    print("========================")
+    logger.info("\n========================")
+    logger.info("NEW EXTRACTION REQUEST")
+    logger.info("========================")
     if "file" not in request.files:
         return jsonify({"success": False, "error": "No file uploaded"}), 400
     pdf = request.files["file"]
-    print("Uploaded file:", pdf.filename)
+    logger.info("Uploaded file: %s", pdf.filename)
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             pdf.save(tmp.name)
-            print("Saved temp PDF:", tmp.name)
+            logger.info("Saved temp PDF: %s", tmp.name)
             task_dir = process_pdf(tmp.name)
-            print("Extraction complete, task dir:", task_dir)
+            logger.info("Extraction complete, task dir: %s", task_dir)
         return jsonify({"success": True, "task_dir": task_dir})
     except Exception as e:
-        print("EXTRACTION ERROR:", str(e))
+        logger.error("EXTRACTION ERROR: %s", str(e))
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -121,4 +148,4 @@ def admin_list_reports():
 
 
 if __name__ == "__main__":
-    app.run(host=BACKEND_HOST, port=BACKEND_PORT, debug=True)
+    app.run(host=BACKEND_HOST, port=BACKEND_PORT, debug=False)
