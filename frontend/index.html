@@ -1728,7 +1728,7 @@ async function syncJobStatus(job) {
       id: Date.now(),
       savedAt: new Date().toISOString(),
       fileName: job.file.name,
-      taskId: job.taskId || job.file.name.replace(/\.pdf$/i, ''),
+      taskId: job.file.name.replace(/\.pdf$/i, ''),
       status: job.status,
       confirmation: job.confirmation ?? null,
       parsedHeader: job.parsedHeader || {},
@@ -2082,11 +2082,12 @@ setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation });
     // Auto-save completed job to backend
     if (currentUser) {
       const h = job.parsedHeader || {};
-      const report = {
+const report = {
         id: Date.now(),
         savedAt: new Date().toISOString(),
         fileName: job.file.name,
-        taskId: h.taskId || job.taskId,
+        taskId: job.file.name.replace(/\.pdf$/i, ''),
+        realTaskId: h.taskId || job.taskId,
         siteId: h.siteId || '',
         taskCategory: h.taskCategory || '',
         taskSubcategory: h.taskSubcategory || '',
@@ -2658,10 +2659,12 @@ function handleFiles(newFiles) {
   updateGlobalBtns();
 
 sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').textContent);
+if (!currentUser) return;
+const _user = currentUser;
 (async () => {
     try {
       // Remove newly uploaded files from deleted blocklist
-      const deletedList = await idbGet(`pdf_deleted_${currentUser.username}`).catch(() => []) || [];
+      const deletedList = await idbGet(`pdf_deleted_${_user.username}`).catch(() => []) || [];
       const newNames    = pdfs.map(f => f.name);
       const updatedList = deletedList.filter(n => !newNames.includes(n));
       await idbSave(`pdf_deleted_${currentUser.username}`, updatedList).catch(() => {});
@@ -2669,19 +2672,19 @@ sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').tex
 for (const f of pdfs) {
         // Save to IndexedDB for same-machine fast restore
         const storable = await fileToStorable(f);
-        await idbSave(`pdf_${currentUser.username}_${f.name}`, storable);
+        await idbSave(`pdf_${_user.username}_${f.name}`, storable);
 
         // Upload to backend so other machines can download it
         const formData = new FormData();
         formData.append('file', f);
-        formData.append('username', currentUser.username);
+        formData.append('username', _user.username);
         await fetch(window.APP_CONFIG.BACKEND_URL + '/api/pdfs/upload', {
           method: 'POST',
           body: formData
         });
 
         // Immediately register a pending report so every machine sees this file
-        await saveUserReports(currentUser.username, [{
+        await saveUserReports(_user.username, [{
           id: Date.now(),
           savedAt: new Date().toISOString(),
           fileName: f.name,
@@ -2715,8 +2718,7 @@ filesToDelete.forEach(name => {
     idbDelete(`pdf_${currentUser.username}_${name}`).catch(() => {});
 
     // Also delete the saved report so it doesn't reappear on other machines
-    const job = jobs.find(j => j.file.name === name);
-    const taskId = job?.taskId || name.replace(/\.pdf$/i, '');
+const taskId = name.replace(/\.pdf$/i, '');
     deleteReportByTaskId(currentUser.username, taskId).catch(() => {});
   });
 
