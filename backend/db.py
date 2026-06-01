@@ -13,7 +13,7 @@ def get_db():
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
-
+    
     # Users table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -23,7 +23,7 @@ def init_db():
             is_admin BOOLEAN DEFAULT 0
         )
     ''')
-
+    
     # Reports table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS reports (
@@ -43,7 +43,7 @@ def init_db():
             UNIQUE(username, taskId)
         )
     ''')
-
+    
     # Create admin user if not exists
     admin_user = "admin"
     admin_pass = "1234@Qwer"
@@ -55,7 +55,7 @@ def init_db():
             "INSERT INTO users (username, name, password_hash, is_admin) VALUES (?, ?, ?, ?)",
             (admin_user, "System Admin", h, 1)
         )
-
+        
     conn.commit()
     conn.close()
 
@@ -86,14 +86,24 @@ def login_user(username, password):
     ).fetchone()
     conn.close()
     return dict(user) if user else None
-
+def is_admin_user(username):
+    if not username:
+        return False
+    conn = get_db()
+    user = conn.execute(
+        "SELECT is_admin FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+    conn.close()
+    return bool(user and user['is_admin'])
+    
 def save_report(username, report_data):
     conn = get_db()
     try:
         task_id = report_data.get('taskId')
         # We store the full JSON but also extract key fields for filtering
         conn.execute('''
-            INSERT INTO reports
+            INSERT INTO reports 
             (username, taskId, fileName, siteId, taskCategory, taskSubcategory, reportDate, fmeName, confirmation, data_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(username, taskId) DO UPDATE SET
@@ -133,12 +143,12 @@ def get_user_reports(username):
 def get_all_reports():
     conn = get_db()
     rows = conn.execute('''
-        SELECT r.data_json, r.username
-        FROM reports r
+        SELECT r.data_json, r.username 
+        FROM reports r 
         ORDER BY r.savedAt DESC
     ''').fetchall()
     conn.close()
-
+    
     results = []
     for r in rows:
         data = json.loads(r['data_json'])
