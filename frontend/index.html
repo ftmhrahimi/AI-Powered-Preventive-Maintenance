@@ -1049,14 +1049,7 @@ try {
 const reportMap = {};
     (savedReports || []).forEach(r => { reportMap[r.fileName || r.taskId] = r; });
 
-    // Load saved statuses from IndexedDB (stopped/error/pending)
-    const idbJobList = await idbGet(`pdf_list_${user.username}`).catch(() => []) || [];
-    const idbStatusMap = {};
-    (Array.isArray(idbJobList) ? idbJobList : []).forEach(f => {
-      const name = typeof f === 'string' ? f : f.name;
-      const status = typeof f === 'string' ? 'pending' : f.status;
-      idbStatusMap[name] = status;
-    });
+
 
     if (backendFiles.length === 0 && savedReports.length === 0) return;
 
@@ -1092,8 +1085,10 @@ const reportMap = {};
 
       if (!file) continue; // skip if we couldn't get the file
 
-const idbStatus = idbStatusMap?.[name] || 'pending';
-      const status = saved ? 'done' : (idbStatus === 'running' ? 'pending' : idbStatus);
+// Status comes from the backend report (single source of truth).
+      // 'running' is never persisted as running — treat as pending on restore.
+      let status = saved?.status || 'pending';
+      if (status === 'running') status = 'pending';
       restoredJobs.push({
         file,
         taskId:       saved?.taskId       || name.replace(/\.pdf$/i, ''),
@@ -1115,9 +1110,11 @@ const idbStatus = idbStatusMap?.[name] || 'pending';
 
     // Also show completed reports whose PDF was deleted (read-only view)
     const restoredNames = new Set(restoredJobs.map(j => j.file.name));
-    for (const saved of savedReports) {
+for (const saved of savedReports) {
       const fname = saved.fileName || saved.taskId;
       if (restoredNames.has(fname)) continue;
+      // A report with no PDF on the server — only show if it was actually completed
+      if ((saved.status || 'pending') !== 'done') continue;
       restoredJobs.push({
         file:         { name: fname },
         taskId:       saved.taskId,
@@ -1723,7 +1720,23 @@ function _saveJobListToIdb() {
   }));
   idbSave(`pdf_list_${currentUser.username}`, list).catch(() => {});
 }
-
+// Push a job's current status to the backend so all machines stay in sync
+async function syncJobStatus(job) {
+  if (!currentUser || !job) return;
+  try {
+    await saveUserReports(currentUser.username, [{
+      id: Date.now(),
+      savedAt: new Date().toISOString(),
+      fileName: job.file.name,
+      taskId: job.taskId || job.file.name.replace(/\.pdf$/i, ''),
+      status: job.status,
+      confirmation: job.confirmation ?? null,
+      parsedHeader: job.parsedHeader || {},
+      parsedItems: job.parsedItems || [],
+      results: _stripPhotos(job.results || [])
+    }]);
+  } catch (e) { console.error('Status sync failed:', e); }
+}
 
 
 let runAllActive  = false;  // true while Run All loop is running
@@ -1775,18 +1788,19 @@ const reportHtml = job.status === 'done'
     }
 
 function setJob(idx, updates) {
+  if (!jobs[idx]) return;
+  const prevStatus = jobs[idx].status;
   Object.assign(jobs[idx], updates);
-  const tbody = document.getElementById('jobsBody');
-  const rows = tbody.querySelectorAll('tr');
-  if (rows[idx]) {
-    const tmp = document.createElement('tbody');
-    tmp.innerHTML = buildJobRow(jobs[idx], idx);
-    rows[idx].parentNode.replaceChild(tmp.firstChild, rows[idx]);
-  }
+  // Re-render the whole table so row positions always match the jobs array.
+  renderJobsTable();
   updateSummary();
   updateGlobalBtns();
-  // Persist current job statuses to IndexedDB
-   _saveJobListToIdb();
+  _saveJobListToIdb();
+  // Sync to backend only when the status actually changes to a stable state
+  if (updates.status && updates.status !== prevStatus &&
+      ['pending', 'stopped', 'error', 'done'].includes(updates.status)) {
+    syncJobStatus(jobs[idx]);
+  }
 }
 
 function updateSummary() {
@@ -2652,7 +2666,7 @@ sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').tex
       const updatedList = deletedList.filter(n => !newNames.includes(n));
       await idbSave(`pdf_deleted_${currentUser.username}`, updatedList).catch(() => {});
 
-      for (const f of pdfs) {
+for (const f of pdfs) {
         // Save to IndexedDB for same-machine fast restore
         const storable = await fileToStorable(f);
         await idbSave(`pdf_${currentUser.username}_${f.name}`, storable);
@@ -2665,6 +2679,19 @@ sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').tex
           method: 'POST',
           body: formData
         });
+
+        // Immediately register a pending report so every machine sees this file
+        await saveUserReports(currentUser.username, [{
+          id: Date.now(),
+          savedAt: new Date().toISOString(),
+          fileName: f.name,
+          taskId: f.name.replace(/\.pdf$/i, ''),
+          status: 'pending',
+          confirmation: null,
+          parsedHeader: {},
+          parsedItems: [],
+          results: []
+        }]).catch(() => {});
       }
     } catch(e) { console.error('Save error:', e); }
   })();
@@ -2735,9 +2762,13 @@ function removeJob(idx) {
     { method: 'DELETE' }
   ).catch(e => console.error('Backend PDF delete failed:', e));
 
-  // Also delete the saved report so it doesn't reappear on other machines
-  const removedTaskId = jobs.find(j => j.file.name === removedName)?.taskId || removedName.replace(/\.pdf$/i, '');
+  // Also delete the backend report so the file disappears on all machines
+  const removedTaskId = removedName.replace(/\.pdf$/i, '');
   deleteReportByTaskId(currentUser.username, removedTaskId).catch(() => {});
+
+  // Also delete the saved report so it doesn't reappear on other machines
+  // const removedTaskId = jobs.find(j => j.file.name === removedName)?.taskId || removedName.replace(/\.pdf$/i, '');
+  // deleteReportByTaskId(currentUser.username, removedTaskId).catch(() => {});
 
 
 
