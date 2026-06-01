@@ -176,6 +176,11 @@
     .stat-num.red{color:var(--red);}
     .stat-lbl{font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;font-family:var(--mono);}
     .table-wrap{background:var(--white);border:0.5px solid var(--border);border-radius:12px;overflow:hidden;}
+     .admin-table-wrap{overflow-x:auto;}
+    .admin-reports-table{min-width:1180px;}
+    .admin-actions{display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;}
+    .admin-actions .btn-view{padding:6px 10px;font-size:11px;line-height:1.2;}
+    .admin-actions .btn-delete{padding:6px 8px;line-height:1.2;flex:0 0 auto;}     
     .jobs-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;}
     .jobs-table th{background:var(--surface);padding:10px 14px;text-align:left;font-weight:500;color:var(--gray);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border);}
     .jobs-table td{padding:11px 14px;border-bottom:0.5px solid var(--border);vertical-align:middle;color:#2d3748;}
@@ -621,8 +626,8 @@
           <span style="font-size:11px;color:var(--gray);" id="adminFilteredCount"></span>
         </div>
 
-        <div class="table-wrap">
-          <table class="jobs-table" style="table-layout:fixed;">
+        <div class="table-wrap admin-table-wrap">
+          <table class="jobs-table admin-reports-table" style="table-layout:fixed;">
             <thead>
               <tr>
                 <th style="width:100px;cursor:pointer" onclick="adminDbSort('owner')">Owner <span id="admin-sort-owner"></span></th>
@@ -1610,9 +1615,11 @@ async function applyFilters() {
         <div class="db-conf-bar"><div class="db-conf-fill" style="width:${conf}%;background:${fc2}"></div></div>
       </td>
       <td style="text-align:center"><span class="vbadge ${disp?'vb-disputed':'vb-confirmed'}">${disp?'Disputed':'Validated'}</span></td>
-      <td style="text-align:center" onclick="event.stopPropagation()">
-        <button class="btn-view ready" onclick="openHistoryReport(${origIdx})">View Report</button>
-        <button class="btn-delete" onclick="deleteHistoryReport(${origIdx})" title="Delete">🗑</button>
+      <td onclick="event.stopPropagation()">
+        <div class="admin-actions">
+          <button class="btn-view ready" onclick="openAdminReport(${idx})">View Report</button>
+          <button class="btn-delete" onclick="deleteReportByTaskId('${escAttr(r.owner)}','${escAttr(r.taskId)}').then(renderAdmin)" title="Delete">🗑</button>
+        </div>
       </td>
     </tr>`;
   }).join('');
