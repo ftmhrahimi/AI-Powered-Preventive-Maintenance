@@ -384,7 +384,7 @@
   <div id="subnav" class="subnav" style="display:none;">
     <button class="subnav-tab active" id="tabValidator" onclick="switchTab('validator')">▶ Validator</button>
     <button class="subnav-tab" id="tabHistory" onclick="switchTab('history')">📊 Dashboard</button>
-        <button class="subnav-tab" id="tabAudit" onclick="switchTab('audit')" style="display:none;">📜 Audit Log</button>
+    <button class="subnav-tab" id="tabAudit" onclick="switchTab('audit')" style="display:none;">📜 Audit Log</button>
     <button class="subnav-tab" id="tabAdmin" onclick="switchTab('admin')" style="display:none;">⚙ System Admin</button>
   </div>
 
@@ -583,44 +583,98 @@
     </div>
   </div>
 
-  <!-- ADMIN TAB -->
+   <!-- ADMIN TAB -->
   <div id="panelAdmin" style="display:none;">
     <div class="main-pad">
-      <div class="history-header">
-        <h2>All User Reports (Admin View)</h2>
-        <button class="btn-view" onclick="renderAdmin()">↺ Refresh</button>
+      <div class="subnav" style="display:flex;margin:0 0 18px 0;padding:0;border:none;">
+        <button class="subnav-tab active" id="adminTabDashboard" onclick="switchAdminTab('dashboard')">📊 Dashboard</button>
+        <button class="subnav-tab" id="adminTabAudit" onclick="switchAdminTab('audit')">📜 Audit</button>
       </div>
-             <div class="db-filters" style="margin-bottom:14px;">
-        <div class="db-filter-group"><label class="db-filter-label">Owner</label><input class="db-filter-input" id="adminFilterOwner" placeholder="username" oninput="applyAdminFilters()"/></div>
-        <div class="db-filter-group"><label class="db-filter-label">Task ID</label><input class="db-filter-input" id="adminFilterTask" placeholder="task id" oninput="applyAdminFilters()"/></div>
-        <div class="db-filter-group"><label class="db-filter-label">Site ID</label><input class="db-filter-input" id="adminFilterSite" placeholder="site id" oninput="applyAdminFilters()"/></div>
-        <div class="db-filter-group"><label class="db-filter-label">Category</label><input class="db-filter-input" id="adminFilterCategory" placeholder="category" oninput="applyAdminFilters()"/></div>
-        <div class="db-filter-group"><label class="db-filter-label">Date From</label><input class="db-filter-input" id="adminFilterDateFrom" type="date" oninput="applyAdminFilters()"/></div>
-        <div class="db-filter-group"><label class="db-filter-label">Date To</label><input class="db-filter-input" id="adminFilterDateTo" type="date" oninput="applyAdminFilters()"/></div>
-        <div class="db-filter-group" style="align-self:flex-end;"><button class="db-reset-btn" onclick="resetAdminFilters()">↺ Reset</button></div>
+
+      <div id="adminDashboardPanel">
+        <div class="history-header">
+          <h2>All User Reports (Admin Dashboard)</h2>
+          <button class="btn-view" onclick="renderAdmin()">↺ Refresh</button>
+        </div>
+
+        <div class="db-kpi-row" id="adminKpiRow">
+          <div class="db-kpi"><div class="db-kpi-num" id="adminKpiTotal">—</div><div class="db-kpi-lbl">Total Reports</div></div>
+          <div class="db-kpi"><div class="db-kpi-num green" id="adminKpiValidated">—</div><div class="db-kpi-lbl">Fully Validated</div></div>
+          <div class="db-kpi"><div class="db-kpi-num red" id="adminKpiDisputed">—</div><div class="db-kpi-lbl">Disputed</div></div>
+          <div class="db-kpi"><div class="db-kpi-num gold" id="adminKpiAvgConf">—</div><div class="db-kpi-lbl">Avg Confirmation</div></div>
+          <div class="db-kpi"><div class="db-kpi-num" id="adminKpiSites">—</div><div class="db-kpi-lbl">Unique Sites</div></div>
+        </div>
+
+        <div class="db-filter-bar">
+          <div class="db-filter-group"><label class="db-filter-label">Owner</label><input class="db-filter-input" id="adminOwner" type="text" placeholder="Search…" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Task ID</label><input class="db-filter-input" id="adminTaskId" type="text" placeholder="Search…" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Site ID</label><input class="db-filter-input" id="adminSiteId" type="text" placeholder="Search…" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Task Category</label><select class="db-filter-input" id="adminCategory" onchange="applyAdminDashboardFilters()"><option value="">All</option></select></div>
+          <div class="db-filter-group"><label class="db-filter-label">Task Subcategory</label><select class="db-filter-input" id="adminSubcategory" onchange="applyAdminDashboardFilters()"><option value="">All</option></select></div>
+          <div class="db-filter-group"><label class="db-filter-label">Report FME</label><select class="db-filter-input" id="adminFme" onchange="applyAdminDashboardFilters()"><option value="">All</option></select></div>
+          <div class="db-filter-group"><label class="db-filter-label">Date From</label><input class="db-filter-input" id="adminDateFrom" type="date" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Date To</label><input class="db-filter-input" id="adminDateTo" type="date" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Min Confirmation %</label><input class="db-filter-input" id="adminMinConf" type="number" min="0" max="100" placeholder="0" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Max Confirmation %</label><input class="db-filter-input" id="adminMaxConf" type="number" min="0" max="100" placeholder="100" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group" style="align-self:flex-end;"><button class="db-reset-btn" onclick="resetAdminDashboardFilters()">↺ Reset</button></div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <span style="font-size:12px;color:var(--gray);" id="adminCount">0 reports</span>
+          <span style="font-size:11px;color:var(--gray);" id="adminFilteredCount"></span>
+        </div>
+
+        <div class="table-wrap">
+          <table class="jobs-table" style="table-layout:fixed;">
+            <thead>
+              <tr>
+                <th style="width:100px;cursor:pointer" onclick="adminDbSort('owner')">Owner <span id="admin-sort-owner"></span></th>
+                <th style="width:150px;cursor:pointer" onclick="adminDbSort('taskId')">Task ID <span id="admin-sort-taskId"></span></th>
+                <th style="width:90px;cursor:pointer" onclick="adminDbSort('siteId')">Site ID <span id="admin-sort-siteId"></span></th>
+                <th style="width:140px;cursor:pointer" onclick="adminDbSort('taskCategory')">Category <span id="admin-sort-taskCategory"></span></th>
+                <th style="width:160px;cursor:pointer" onclick="adminDbSort('taskSubcategory')">Subcategory <span id="admin-sort-taskSubcategory"></span></th>
+                <th style="width:110px;cursor:pointer" onclick="adminDbSort('reportDate')">Date <span id="admin-sort-reportDate"></span></th>
+                <th style="width:130px;cursor:pointer" onclick="adminDbSort('fmeName')">FME <span id="admin-sort-fmeName"></span></th>
+                <th style="width:90px;cursor:pointer;text-align:center" onclick="adminDbSort('confirmation')">Confirmation <span id="admin-sort-confirmation"></span></th>
+                <th style="width:80px;text-align:center">Status</th>
+                <th style="width:150px;text-align:center">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminTableBody"></tbody>
+          </table>
+        </div>
       </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <span style="font-size:12px;color:var(--gray);" id="adminCount">0 reports</span>
-        <span style="font-size:11px;color:var(--gray);" id="adminFilteredCount"></span>
-      </div> 
-      <div class="table-wrap">
-        <table class="jobs-table">
-          <thead>
-            <tr>
-              <th style="width:100px;">Owner</th>
-              <th style="width:150px;">Task ID</th>
-              <th style="width:90px;">Site ID</th>
-              <th>Category</th>
-              <th style="width:140px;">Subcategory</th> 
-              <th style="width:110px;">Date</th>
-              <th style="width:90px;text-align:center">Conf.</th>
-              <th style="width:150px;text-align:center">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="adminTableBody"></tbody>
-        </table>
+
+      <div id="adminAuditPanel" style="display:none;">
+        <div class="history-header">
+          <h2>System Audit Log</h2>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <input type="text" id="auditFilterUser" placeholder="User..." class="db-filter-input" style="width:120px;">
+            <input type="text" id="auditFilterEvent" placeholder="Event Type..." class="db-filter-input" style="width:150px;">
+            <input type="text" id="auditFilterTask" placeholder="Task ID..." class="db-filter-input" style="width:120px;">
+            <button class="btn-view" onclick="loadAuditLog()" style="background:var(--gold);font-weight:600;">Apply Filters</button>
+            <button class="btn-view" onclick="loadAuditLog()">↺ Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="jobs-table">
+            <thead>
+              <tr>
+                <th style="width:160px;">Time (UTC)</th>
+                <th style="width:100px;">User</th>
+                <th style="width:140px;">Event</th>
+                <th style="width:130px;">Task ID</th>
+                <th style="width:80px;">Status</th>
+                <th>Detail</th>
+                <th style="width:110px;">IP Address</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody"></tbody>
+          </table>
+        </div>
       </div>
-       
+    </div>
+
     <!-- Admin Report Detail Modal -->
     <div class="modal-overlay" id="adminModalOverlay">
       <div class="modal-box">
@@ -646,45 +700,9 @@
             </table>
           </div>
         </div>
-      </div> 
-    </div>
-    </div>
-  </div>
-    <!-- Audit Log Tab -->
-    <div id="panelAudit" style="display:none;">
-      <div class="main-pad">
-        <div class="history-header">
-          <h2>System Audit Log</h2>
-          <div style="display:flex;gap:10px;">
-            <input type="text" id="auditFilterUser" placeholder="User..." class="db-filter-input" style="width:120px;">
-            <input type="text" id="auditFilterEvent" placeholder="Event Type..." class="db-filter-input" style="width:150px;">
-            <input type="text" id="auditFilterTask" placeholder="Task ID..." class="db-filter-input" style="width:120px;">
-            <input type="text" id="auditFilterJob" placeholder="Job ID..." class="db-filter-input" style="width:120px;">
-            <button class="btn-view" onclick="loadAuditLog()" style="background:var(--gold);font-weight:600;">Apply Filters</button>
-            <button class="btn-view" onclick="loadAuditLog()">↺ Refresh</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="jobs-table">
-            <thead>
-              <tr>
-                <th style="width:160px;">Time (UTC)</th>
-                <th style="width:100px;">User</th>
-                <th style="width:140px;">Event</th>
-                <th style="width:100px;">Job ID</th>
-                <th style="width:100px;">Task ID</th>
-                <th style="width:80px;">Status</th>
-                <th>Detail</th>
-                <th style="width:110px;">IP Address</th>
-              </tr>
-            </thead>
-            <tbody id="auditTableBody"></tbody>
-          </table>
-        </div>
       </div>
     </div>
   </div>
-
 
 <div class="toast" id="toast"></div>
 
@@ -1234,22 +1252,21 @@ async function checkLlmHealth() {
    TABS
 ══════════════════════════════════════════════ */
 function switchTab(tab) {
-  if ((tab === 'audit' || tab === 'admin') && (!currentUser || !currentUser.isAdmin)) tab = 'validator';
+  const openAdminAudit = tab === 'audit' && currentUser?.isAdmin;
+  if (openAdminAudit) tab = 'admin';
+  if (tab === 'audit' || (tab === 'admin' && (!currentUser || !currentUser.isAdmin))) tab = 'validator';
   document.getElementById('panelValidator').style.display = tab === 'validator' ? '' : 'none';
   document.getElementById('panelHistory').style.display   = tab === 'history' ? '' : 'none';
-  document.getElementById('panelAudit').style.display     = tab === 'audit' ? '' : 'none';
   document.getElementById('panelAdmin').style.display     = tab === 'admin' ? '' : 'none';
 
   document.getElementById('tabValidator').classList.toggle('active', tab === 'validator');
   document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
-  document.getElementById('tabAudit').classList.toggle('active', tab === 'audit');
+  document.getElementById('tabAudit').classList.toggle('active', false);
   document.getElementById('tabAdmin').classList.toggle('active', tab === 'admin');
 
   if (tab === 'history') renderHistory().catch(()=>{});
-  if (tab === 'audit') loadAuditLog().catch(()=>{});
-  if (tab === 'admin') renderAdmin().catch(()=>{});
+  if (tab === 'admin') switchAdminTab(openAdminAudit ? 'audit' : 'dashboard');
 }
-
 /* ══════════════════════════════════════════════
    SAVE / HISTORY
 ══════════════════════════════════════════════ */
@@ -1273,26 +1290,7 @@ async function saveCurrentReport() {
     results: _stripPhotos(job.results),
     confirmation: job.confirmation,
   };
-//   await saveUserReports(currentUser.username, [report]);
-//   showToast('✓ Report saved');
-//   if (document.getElementById('panelHistory').style.display !== 'none') await renderHistory();
-// // Bug 4: Restore folder selection from session storage
-//   const lastLabel = sessionStorage.getItem('lastFolderLabel');
-//   const lastNames = sessionStorage.getItem('lastFileNames');
-//   if (lastLabel && lastNames) {
-//     const names = JSON.parse(lastNames);
-//     document.getElementById('dirPath').textContent = lastLabel + ' (re-select folder to reprocess)';
-//     document.getElementById('dirPath').classList.remove('empty');
-//     document.getElementById('summaryRow').style.display = 'grid';
-//     // Restore jobs array with placeholder file objects (names only)
-//     jobs = names.map(name => ({
-//       file: { name },
-//       taskId: name.replace(/.pdf$/i, ''),
-//       status: 'pending',
-//       pct: 0,
-//       barLabel: 'Re-select folder to process',
-//       confirmation: null,
-//       results: [],
+
 //       parsedItems: [],
 //       parsedHeader: {},
 //       paused: false
@@ -1317,64 +1315,135 @@ async function renderHistory() {
   updateKpis(reports);
   await applyFilters();
 }
+
 let adminReportsCache = [];
 let adminFilteredReports = [];
+let adminSortKey = 'savedAt';
+let adminSortDir = -1;
+
+function switchAdminTab(tab) {
+  if (!currentUser || !currentUser.isAdmin) return;
+  document.getElementById('adminDashboardPanel').style.display = tab === 'dashboard' ? '' : 'none';
+  document.getElementById('adminAuditPanel').style.display = tab === 'audit' ? '' : 'none';
+  document.getElementById('adminTabDashboard').classList.toggle('active', tab === 'dashboard');
+  document.getElementById('adminTabAudit').classList.toggle('active', tab === 'audit');
+  if (tab === 'dashboard') renderAdmin().catch(()=>{});
+  if (tab === 'audit') loadAuditLog().catch(()=>{});
+}
+
 async function renderAdmin() {
   if (!currentUser || !currentUser.isAdmin) return;
   try {
     const res = await fetch(window.APP_CONFIG.BACKEND_URL+`/api/admin/reports?admin_username=${encodeURIComponent(currentUser.username)}`);
-        if (!res.ok) throw new Error('Admin report access denied');
-        adminReportsCache = await res.json();
-        applyAdminFilters();
+    if (!res.ok) throw new Error('Admin report access denied');
+    adminReportsCache = await res.json();
+    populateAdminFilterDropdowns(adminReportsCache);
+    updateAdminKpis(adminReportsCache);
+    applyAdminDashboardFilters();
   } catch (err) {
     console.error('Admin fetch failed:', err);
     const tbody = document.getElementById('adminTableBody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--red);">Unable to load admin reports.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--red);">Unable to load admin reports.</td></tr>';
   }
 }
 
-function getAdminFilteredReports() {
-  const owner = (document.getElementById('adminFilterOwner')?.value || '').trim().toLowerCase();
-  const task = (document.getElementById('adminFilterTask')?.value || '').trim().toLowerCase();
-  const site = (document.getElementById('adminFilterSite')?.value || '').trim().toLowerCase();
-  const category = (document.getElementById('adminFilterCategory')?.value || '').trim().toLowerCase();
-  const dateFrom = document.getElementById('adminFilterDateFrom')?.value || '';
-  const dateTo = document.getElementById('adminFilterDateTo')?.value || '';
-  return adminReportsCache.filter(r => {
-    if (owner && !(r.owner || '').toLowerCase().includes(owner)) return false;
-    if (task && !(r.taskId || '').toLowerCase().includes(task)) return false;
-    if (site && !(r.siteId || '').toLowerCase().includes(site)) return false;
-    if (category && !(r.taskCategory || '').toLowerCase().includes(category) && !(r.taskSubcategory || '').toLowerCase().includes(category)) return false;
-    const rd = (r.reportDate || '').substring(0, 10);
-    if (dateFrom && (!rd || rd < dateFrom)) return false;
-    if (dateTo && (!rd || rd > dateTo)) return false;
+function populateAdminFilterDropdowns(reports) {
+  const cats    = [...new Set(reports.map(r => r.taskCategory).filter(Boolean))].sort();
+  const subcats = [...new Set(reports.map(r => r.taskSubcategory).filter(Boolean))].sort();
+  const fmes    = [...new Set(reports.map(r => r.fmeName).filter(Boolean))].sort();
+  const fill = (id, vals) => {
+    const sel = document.getElementById(id); if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All</option>' + vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
+    sel.value = cur;
+  };
+  fill('adminCategory', cats); fill('adminSubcategory', subcats); fill('adminFme', fmes);
+}
+
+function updateAdminKpis(reports) {
+  const filtered  = getAdminDashboardFilteredReports(reports);
+  const validated = filtered.filter(r => !(r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
+  const disputed  = filtered.filter(r =>  (r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
+  const pcts = filtered.map(r => r.confirmation).filter(v => v != null);
+  const avg  = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
+  const sites = new Set(filtered.map(r => r.siteId).filter(Boolean)).size;
+  document.getElementById('adminKpiTotal').textContent     = filtered.length;
+  document.getElementById('adminKpiValidated').textContent = validated;
+  document.getElementById('adminKpiDisputed').textContent  = disputed;
+  document.getElementById('adminKpiAvgConf').textContent   = avg != null ? avg + '%' : '—';
+  document.getElementById('adminKpiSites').textContent     = sites || '—';
+}
+
+function getAdminDashboardFilteredReports(reports = adminReportsCache) {
+  const g = id => (document.getElementById(id)?.value || '');
+  const owner     = g('adminOwner').toLowerCase();
+  const taskId    = g('adminTaskId').toLowerCase();
+  const siteId    = g('adminSiteId').toLowerCase();
+  const category  = g('adminCategory');
+  const subcat    = g('adminSubcategory');
+  const fme       = g('adminFme');
+  const dateFrom  = g('adminDateFrom');
+  const dateTo    = g('adminDateTo');
+  const minConf   = parseInt(g('adminMinConf')) || 0;
+  const maxRaw    = parseInt(g('adminMaxConf'));
+  const maxConf   = isNaN(maxRaw) ? 100 : maxRaw;
+  return reports.filter(r => {
+    if (owner    && !(r.owner||'').toLowerCase().includes(owner)) return false;
+    if (taskId   && !(r.taskId||'').toLowerCase().includes(taskId)) return false;
+    if (siteId   && !(r.siteId||'').toLowerCase().includes(siteId)) return false;
+    if (category && r.taskCategory !== category) return false;
+    if (subcat   && r.taskSubcategory !== subcat) return false;
+    if (fme      && r.fmeName !== fme) return false;
+    const rd = (r.reportDate||'').substring(0,10);
+    if (dateFrom && rd && rd < dateFrom) return false;
+    if (dateTo && rd && rd > dateTo) return false;
+    const conf = r.confirmation ?? 0;
+    if (conf < minConf || conf > maxConf) return false;
     return true;
   });
 }
 
-function applyAdminFilters() {
+function applyAdminDashboardFilters() {
   if (!currentUser || !currentUser.isAdmin) return;
-  adminFilteredReports = getAdminFilteredReports();
-  const tbody = document.getElementById('adminTableBody');
+  updateAdminKpis(adminReportsCache);
+  adminFilteredReports = getAdminDashboardFilteredReports();
+  adminFilteredReports.sort((a, b) => {
+    let va = a[adminSortKey] ?? '', vb = b[adminSortKey] ?? '';
+    if (va < vb) return -adminSortDir; if (va > vb) return adminSortDir; return 0;
+  });
+  ['owner','taskId','siteId','taskCategory','taskSubcategory','reportDate','fmeName','confirmation'].forEach(k => {
+    const el = document.getElementById('admin-sort-'+k);
+    if (el) el.textContent = k === adminSortKey ? (adminSortDir===1?' ↑':' ↓') : '';
+  });
   const total = adminReportsCache.length;
   document.getElementById('adminCount').textContent = total + ' report' + (total !== 1 ? 's' : '');
   document.getElementById('adminFilteredCount').textContent = adminFilteredReports.length < total ? `Showing ${adminFilteredReports.length} of ${total}` : '';
+  const tbody = document.getElementById('adminTableBody');
   if (!adminFilteredReports.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--gray);">No reports found across all users.</td></tr>';
-    return;      
+    tbody.innerHTML = '<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--gray);font-size:13px;">No reports found across all users.</td></tr>';
+    return;
   }
- tbody.innerHTML = adminFilteredReports.map((r, idx) => {
+  tbody.innerHTML = adminFilteredReports.map((r, idx) => {
     const conf = r.confirmation ?? 0;
-    const cc = conf >= 80 ? 'high' : conf >= 50 ? 'mid' : 'low';
+    const cc   = conf>=80?'high':conf>=50?'mid':'low';
+    const fc2  = conf>=80?'var(--green)':conf>=50?'#d4a017':'var(--red)';
+    const disp = (r.results||[]).some(x => x.verdict==='DISPUTED');
+    const rd   = r.reportDate ? r.reportDate.substring(0,10) : '—';
     return `<tr style="cursor:pointer" onclick="openAdminReport(${idx})">
-      <td style="font-weight:600;color:var(--gold-dark)">${escHtml(r.owner)}</td>
-      <td style="font-family:var(--mono);font-size:11px">${escHtml(r.taskId)}</td>
-      <td style="font-family:var(--mono);font-size:11px">${escHtml(r.siteId || '—')}</td>
-      <td style="font-size:11px">${escHtml(r.taskCategory || '—')}</td>
-      <td style="font-size:11px">${escHtml(r.taskSubcategory || '—')}</td>
-      <td style="font-size:11px;font-family:var(--mono)">${escHtml((r.reportDate || '').substring(0, 10) || '—')}</td>
-      <td style="text-align:center"><div class="pct-cell ${cc}" style="font-size:13px">${conf}%</div></td>
+      <td style="font-weight:600;color:var(--gold-dark)">${escHtml(r.owner||'—')}</td>
+      <td style="font-family:var(--mono);font-size:11px;font-weight:600">${escHtml(r.taskId||'—')}</td>
+      <td style="font-family:var(--mono);font-size:11px">${escHtml(r.siteId||'—')}</td>
+      <td style="font-size:11px">${escHtml(r.taskCategory||'—')}</td>
+      <td style="font-size:11px">${escHtml(r.taskSubcategory||'—')}</td>
+      <td style="font-size:11px;font-family:var(--mono)">${escHtml(rd)}</td>
+      <td style="font-size:11px">${escHtml(r.fmeName||'—')}</td>
+      <td style="text-align:center">
+        <div class="pct-cell ${cc}" style="font-size:13px">${conf}%</div>
+        <div class="db-conf-bar"><div class="db-conf-fill" style="width:${conf}%;background:${fc2}"></div></div>
+      </td>
+      <td style="text-align:center"><span class="vbadge ${disp?'vb-disputed':'vb-confirmed'}">${disp?'Disputed':'Validated'}</span></td>
       <td style="text-align:center" onclick="event.stopPropagation()">
+        <button class="btn-view ready" onclick="openHistoryReport(${origIdx})">View Report</button>      
         <button class="btn-view ready" onclick="openAdminReport(${idx})">View Report</button>
         <button class="btn-delete" onclick="deleteReportByTaskId('${escAttr(r.owner)}','${escAttr(r.taskId)}').then(renderAdmin)" title="Delete">🗑</button>
       </td>
@@ -1382,12 +1451,22 @@ function applyAdminFilters() {
   }).join('');
 }
 
-function resetAdminFilters() {
-  ['adminFilterOwner','adminFilterTask','adminFilterSite','adminFilterCategory','adminFilterDateFrom','adminFilterDateTo'].forEach(id => {
+function adminDbSort(key) {
+  adminSortDir = adminSortKey===key ? adminSortDir*-1 : 1;
+  adminSortKey = key;
+  applyAdminDashboardFilters();
+}
+
+function resetAdminDashboardFilters() {
+  ['adminOwner','adminTaskId','adminSiteId','adminDateFrom','adminDateTo','adminMinConf','adminMaxConf'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
-  applyAdminFilters();
+  ['adminCategory','adminSubcategory','adminFme'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  applyAdminDashboardFilters();
 }
 
 function openAdminReport(idx) {
@@ -1407,20 +1486,18 @@ async function loadAuditLog() {
   const user = document.getElementById('auditFilterUser').value.trim();
   const event = document.getElementById('auditFilterEvent').value.trim();
   const task = document.getElementById('auditFilterTask').value.trim();
-  const job = document.getElementById('auditFilterJob').value.trim();
   let url = window.APP_CONFIG.BACKEND_URL+`/audit?admin_username=${encodeURIComponent(currentUser.username)}&`;
   if (user) url += `username=${encodeURIComponent(user)}&`;
   if (event) url += `event_type=${encodeURIComponent(event)}&`;
   if (task) url += `task_id=${encodeURIComponent(task)}&`;
-  if (job) url += `job_id=${encodeURIComponent(job)}&`;
-    
+
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error('Audit access denied');
     const logs = await res.json();
     const tbody = document.getElementById('auditTableBody');
     if (!logs.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--gray);">No audit events found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--gray);">No audit events found.</td></tr>';
       return;
     }
     tbody.innerHTML = logs.map(l => {
@@ -1429,9 +1506,8 @@ async function loadAuditLog() {
         <td style="font-family:var(--mono);font-size:11px;">${ts}</td>
         <td style="font-weight:600;">${escHtml(l.username || '—')}</td>
         <td style="font-size:11px;"><code>${escHtml(l.event_type)}</code></td>
-        <td style="font-family:var(--mono);font-size:10px;" title="${escHtml(l.job_id || '')}">${l.job_id ? escHtml(l.job_id.substring(0, 8)) : '—'}</td>
         <td style="font-family:var(--mono);font-size:11px;">${escHtml(l.task_id || '—')}</td>
-    <td style="text-align:center;"><span class="vbadge ${l.status === 'success' ? 'vb-confirmed' : l.status === 'failed' ? 'vb-disputed' : 'vb-no-ev'}">${escHtml(l.status || '—')}</span></td>
+        <td style="text-align:center;"><span class="vbadge ${l.status === 'success' ? 'vb-confirmed' : l.status === 'failed' ? 'vb-disputed' : 'vb-no-ev'}">${escHtml(l.status || '—')}</span></td>
         <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(l.detail || '')}">${escHtml(l.detail || '—')}</td>
         <td style="font-family:var(--mono);font-size:11px;">${escHtml(l.ip_address || '—')}</td>
       </tr>`;
@@ -1440,7 +1516,6 @@ async function loadAuditLog() {
     console.error('Audit fetch failed:', err);
   }
 }
-
 function populateFilterDropdowns(reports) {
   const cats    = [...new Set(reports.map(r => r.taskCategory).filter(Boolean))].sort();
   const subcats = [...new Set(reports.map(r => r.taskSubcategory).filter(Boolean))].sort();
