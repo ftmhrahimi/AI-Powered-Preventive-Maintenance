@@ -827,15 +827,15 @@ function saveUsers(users) {
 }
 
 function getSessionUser() {
-  try { return JSON.parse(sessionStorage.getItem('pm_session') || 'null'); } catch { return null; }
+  try { return JSON.parse(localStorage.getItem('pm_session') || 'null'); } catch { return null; }
 }
 
 function setSessionUser(user) {
-  sessionStorage.setItem('pm_session', JSON.stringify(user));
+  localStorage.setItem('pm_session', JSON.stringify(user));
 }
 
 function clearSession() {
-  sessionStorage.removeItem('pm_session');
+  localStorage.removeItem('pm_session');
 }
 
 /* ── Persistent DB via window.storage (artifact storage, no size limit) ──
@@ -1039,94 +1039,72 @@ async function startApp(user) {
   //   updateGlobalBtns();
   // }
 // Restore last session state from IndexedDB
-  try {
-    const fileNames = await idbGet(`pdf_list_${user.username}`);
-    const savedReports = await getUserReports(user.username);
+try {
+    // Fetch what the backend knows about this user
+    const [backendFiles, savedReports] = await Promise.all([
+      fetch(window.APP_CONFIG.BACKEND_URL + `/api/pdfs/list?username=${encodeURIComponent(user.username)}`).then(r => r.json()).catch(() => []),
+      getUserReports(user.username)
+    ]);
+
     const reportMap = {};
     (savedReports || []).forEach(r => { reportMap[r.fileName || r.taskId] = r; });
 
-// Build jobs from IndexedDB files + backend results
+    if (backendFiles.length === 0 && savedReports.length === 0) return;
+
     const restoredJobs = [];
 
-// First — add jobs from IndexedDB or download from backend
-let backendPdfList = [];
-    try {
-      const res = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/pdfs/list?username=${encodeURIComponent(user.username)}`);
-      backendPdfList = await res.json();
-    } catch(e) { console.error('Could not fetch PDF list from backend:', e); }
+    // Build jobs from backend PDF list
+    for (const name of backendFiles) {
+      const saved = reportMap[name];
 
-    // Get deleted blocklist — never restore these files
-    const deletedList = await idbGet(`pdf_deleted_${user.username}`).catch(() => []) || [];
+      // Try IndexedDB cache first (fast, same machine)
+      let file = null;
+      try {
+        const stored = await idbGet(`pdf_${user.username}_${name}`);
+        if (stored) file = storableToFile(stored);
+      } catch(e) {}
 
-    // Filter out deleted files from backend list
-    backendPdfList = backendPdfList.filter(name => !deletedList.includes(name));
-
-    // fileNames from IndexedDB is now array of {name, status} objects OR plain strings (old format)
-    const idbJobList = (fileNames || []).map(f =>
-      typeof f === 'string' ? { name: f, status: 'pending' } : f
-    );
-    const idbStatusMap = {};
-    idbJobList.forEach(f => { idbStatusMap[f.name] = f.status; });
-
-// Combine IndexedDB filenames + backend filenames into one unique list
-    // Filter out any files in the deleted blocklist
-    const idbNames     = idbJobList.map(f => f.name).filter(n => !deletedList.includes(n));
-    const allFileNames = [...new Set([...idbNames, ...backendPdfList])];
-    if (allFileNames.length > 0) {
-      for (const name of allFileNames) {
-        const saved = reportMap[name];
-
-        // Try IndexedDB first (fast, same machine)
-        let stored = await idbGet(`pdf_${user.username}_${name}`);
-
-        // If not in IndexedDB, download from backend
-        if (!stored && backendPdfList.includes(name)) {
-          try {
-            const res = await fetch(
-              window.APP_CONFIG.BACKEND_URL +
-              `/api/pdfs/download?username=${encodeURIComponent(user.username)}&filename=${encodeURIComponent(name)}`
-            );
-            if (res.ok) {
-              const blob     = await res.blob();
-              const buffer   = await blob.arrayBuffer();
-              stored = { name, type: 'application/pdf', size: buffer.byteLength, data: buffer };
-              // Cache in IndexedDB for next time on this machine
-              await idbSave(`pdf_${user.username}_${name}`, stored);
-            }
-          } catch(e) { console.error('PDF download failed:', e); }
-        }
-
-if (stored) {
-          const file = storableToFile(stored);
-          // Use saved status from IndexedDB, but backend report overrides to 'done'
-          const restoredStatus = saved ? 'done' : (idbStatusMap[name] || 'pending');
-          restoredJobs.push({
-            file,
-            taskId:       saved?.taskId       || name.replace(/\.pdf$/i, ''),
-            status:       restoredStatus,
-            pct:          restoredStatus === 'done'    ? 100  :
-                          restoredStatus === 'stopped' ? 0    :
-                          restoredStatus === 'error'   ? 100  : 0,
-            barLabel:     restoredStatus === 'done'    ? 'Complete' :
-                          restoredStatus === 'stopped' ? 'Stopped'  :
-                          restoredStatus === 'error'   ? 'Failed'   : 'Waiting…',
-            confirmation: saved?.confirmation ?? null,
-            results:      saved?.results      || [],
-            parsedItems:  saved?.parsedItems  || [],
-            parsedHeader: saved?.parsedHeader || {},
-            paused:  false,
-            aborted: false,
-            _savedReport: !!saved
-          });
-        }
+      // If not cached locally, download from backend
+      if (!file) {
+        try {
+          const res = await fetch(
+            window.APP_CONFIG.BACKEND_URL +
+            `/api/pdfs/download?username=${encodeURIComponent(user.username)}&filename=${encodeURIComponent(name)}`
+          );
+          if (res.ok) {
+            const blob = await res.blob();
+            const buffer = await blob.arrayBuffer();
+            const stored = { name, type: 'application/pdf', size: buffer.byteLength, data: buffer };
+            await idbSave(`pdf_${user.username}_${name}`, stored).catch(() => {});
+            file = storableToFile(stored);
+          }
+        } catch(e) { console.error('PDF download failed:', e); }
       }
+
+      if (!file) continue; // skip if we couldn't get the file
+
+      const status = saved ? 'done' : 'pending';
+      restoredJobs.push({
+        file,
+        taskId:       saved?.taskId       || name.replace(/\.pdf$/i, ''),
+        status,
+        pct:          status === 'done' ? 100 : 0,
+        barLabel:     status === 'done' ? 'Complete' : 'Waiting…',
+        confirmation: saved?.confirmation ?? null,
+        results:      saved?.results      || [],
+        parsedItems:  saved?.parsedItems  || [],
+        parsedHeader: saved?.parsedHeader || {},
+        paused:  false,
+        aborted: false,
+        _savedReport: !!saved
+      });
     }
 
-    // Second — add backend reports that are NOT already in the list above
+    // Also show completed reports whose PDF was deleted (read-only view)
     const restoredNames = new Set(restoredJobs.map(j => j.file.name));
-    for (const saved of (savedReports || [])) {
+    for (const saved of savedReports) {
       const fname = saved.fileName || saved.taskId;
-      if (restoredNames.has(fname)) continue; // already added from IndexedDB
+      if (restoredNames.has(fname)) continue;
       restoredJobs.push({
         file:         { name: fname },
         taskId:       saved.taskId,
@@ -1144,16 +1122,9 @@ if (stored) {
       });
     }
 
-// Update IndexedDB file list to include any newly downloaded files
-    const allRestoredNames = restoredJobs.map(j => j.file.name);
-    if (allRestoredNames.length > 0) {
-      await idbSave(`pdf_list_${user.username}`, allRestoredNames);
-    }
-
-    if (restoredJobs.length > 0) {
-      jobs = restoredJobs;
-      const label = sessionStorage.getItem('lastFolderLabel') || `${jobs.length} file${jobs.length !== 1 ? 's' : ''} restored`;
-      document.getElementById('dirPath').textContent = label;
+    if (restoredJobs.length > 0 && jobs.length === 0) {
+          jobs = restoredJobs;
+      document.getElementById('dirPath').textContent = `${jobs.length} file${jobs.length !== 1 ? 's' : ''} restored`;
       document.getElementById('dirPath').classList.remove('empty');
       document.getElementById('summaryRow').style.display = 'grid';
       renderJobsTable();
@@ -1179,6 +1150,7 @@ async function _migrateLocalStorageReports(username) {
 }
 
 function doSignOut() {
+
   clearSession();
   sessionStorage.removeItem('lastFolderLabel');
   sessionStorage.removeItem('lastFileNames');
@@ -1615,12 +1587,12 @@ async function applyFilters() {
         <div class="db-conf-bar"><div class="db-conf-fill" style="width:${conf}%;background:${fc2}"></div></div>
       </td>
       <td style="text-align:center"><span class="vbadge ${disp?'vb-disputed':'vb-confirmed'}">${disp?'Disputed':'Validated'}</span></td>
-      <td onclick="event.stopPropagation()">
-        <div class="admin-actions">
-          <button class="btn-view ready" onclick="openAdminReport(${idx})">View Report</button>
-          <button class="btn-delete" onclick="deleteReportByTaskId('${escAttr(r.owner)}','${escAttr(r.taskId)}').then(renderAdmin)" title="Delete">🗑</button>
-        </div>
-      </td>
+        <td onclick="event.stopPropagation()">
+          <div class="admin-actions">
+            <button class="btn-view ready" onclick="openHistoryReport(${origIdx})">View Report</button>
+            <button class="btn-delete" onclick="deleteReportByTaskId('${escAttr(currentUser.username)}','${escAttr(r.taskId)}').then(()=>renderHistory())" title="Delete">🗑</button>
+          </div>
+        </td>
     </tr>`;
   }).join('');
 }
@@ -1801,7 +1773,7 @@ function setJob(idx, updates) {
   updateSummary();
   updateGlobalBtns();
   // Persist current job statuses to IndexedDB
-  _saveJobListToIdb();
+  // _saveJobListToIdb();
 }
 
 function updateSummary() {
@@ -1858,10 +1830,6 @@ async function runAll() {
   // Workers run sequentially per slot, looping until NO pending jobs remain
 // Global queue — built once, consumed atomically by all workers
   // Each job gets a unique ticket number — no two workers ever get the same idx
-// Reset stopped/error jobs back to pending so they get queued
-  jobs.forEach(j => {
-    if (j.status === 'stopped' || j.status === 'error') j.status = 'pending';
-  });
   renderJobsTable();
 
   // Build queue of all pending job indices upfront
@@ -2104,7 +2072,7 @@ setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation });
       };
       saveUserReports(currentUser.username, [report]).catch(e => console.error('Auto-save failed:', e));
       // Update IndexedDB file list with current job statuses
-      _saveJobListToIdb();
+      // _saveJobListToIdb();
     }
 } catch (err) {
     // Clean up controller
@@ -2685,7 +2653,6 @@ sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').tex
           body: formData
         });
       }
-      await idbSave(`pdf_list_${currentUser.username}`, jobs.map(j => j.file.name));
     } catch(e) { console.error('Save error:', e); }
   })();
 }
@@ -2696,7 +2663,7 @@ function clearFolder() {
   // Delete every file from backend and IndexedDB before clearing UI
   const filesToDelete = jobs.map(j => j.file.name);
 
-  filesToDelete.forEach(name => {
+filesToDelete.forEach(name => {
     // Delete from backend
     fetch(
       window.APP_CONFIG.BACKEND_URL +
@@ -2706,16 +2673,13 @@ function clearFolder() {
 
     // Delete from IndexedDB cache
     idbDelete(`pdf_${currentUser.username}_${name}`).catch(() => {});
+
+    // Also delete the saved report so it doesn't reappear on other machines
+    const job = jobs.find(j => j.file.name === name);
+    const taskId = job?.taskId || name.replace(/\.pdf$/i, '');
+    deleteReportByTaskId(currentUser.username, taskId).catch(() => {});
   });
 
-// Add all cleared files to deleted blocklist
-  idbGet(`pdf_deleted_${currentUser.username}`).then(list => {
-    const deleted = list || [];
-    filesToDelete.forEach(name => {
-      if (!deleted.includes(name)) deleted.push(name);
-    });
-    idbSave(`pdf_deleted_${currentUser.username}`, deleted).catch(() => {});
-  }).catch(() => {});
 
   // Clear IndexedDB file list
   idbSave(`pdf_list_${currentUser.username}`, []).catch(() => {});
@@ -2751,25 +2715,26 @@ function removeJob(idx) {
 
   if (!currentUser) return;
 
-  // Delete from backend storage
+// Delete from backend storage
   fetch(
     window.APP_CONFIG.BACKEND_URL +
     `/api/pdfs/delete?username=${encodeURIComponent(currentUser.username)}&filename=${encodeURIComponent(removedName)}`,
     { method: 'DELETE' }
   ).catch(e => console.error('Backend PDF delete failed:', e));
 
+  // Also delete the saved report so it doesn't reappear on other machines
+  const removedTaskId = jobs.find(j => j.file.name === removedName)?.taskId || removedName.replace(/\.pdf$/i, '');
+  deleteReportByTaskId(currentUser.username, removedTaskId).catch(() => {});
+
+
+
 // Delete from IndexedDB cache
   idbDelete(`pdf_${currentUser.username}_${removedName}`).catch(() => {});
 
-  // Add to deleted blocklist so it never restores again
-  idbGet(`pdf_deleted_${currentUser.username}`).then(list => {
-    const deleted = list || [];
-    if (!deleted.includes(removedName)) deleted.push(removedName);
-    idbSave(`pdf_deleted_${currentUser.username}`, deleted).catch(() => {});
-  }).catch(() => {});
+
 
   // Update IndexedDB file list
-  _saveJobListToIdb();
+  // _saveJobListToIdb();
 }
 
 document.getElementById('folderInput').addEventListener('change', e => handleFiles(e.target.files));
