@@ -1,6 +1,7 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import tempfile
 import os
+import shutil
 import requests
 import logging
 import uuid
@@ -15,6 +16,10 @@ from flask_limiter.util import get_remote_address
 from extractor import process_pdf
 from config import LLM_SERVER_URL as CONFIG_LLM_URL, BACKEND_HOST, BACKEND_PORT
 from db import init_db, register_user, login_user, save_report, get_user_reports, get_all_reports, delete_report
+
+# PDF storage directory
+PDF_STORAGE_DIR = os.path.join(os.path.dirname(__file__), 'storage', 'pdfs')
+os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
 
 LLM_SERVER_URL = os.environ.get("LLM_SERVER_URL", CONFIG_LLM_URL)
 LLM_MAX_RETRIES = 3
@@ -186,7 +191,8 @@ def background_maintenance():
 threading.Thread(target=background_maintenance, daemon=True).start()
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+CORS(app)
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024 
 init_db()
 
 @app.errorhandler(413)
@@ -202,23 +208,44 @@ CORS(app,
      resources={r"/*": {"origins": os.getenv("ALLOWED_ORIGIN", "*")}},
      supports_credentials=True,
      allow_headers=["Content-Type", "Authorization"],
-     methods=["GET", "POST", "OPTIONS"])
+     methods=["GET", "POST", "DELETE", "OPTIONS"])
 
 limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour", "30 per minute"])
 
-@app.route('/health', methods=['GET'])
+# @app.route('/health', methods=['GET'])
+# def health():
+#     return jsonify({
+#         "status": "ok",
+#         "llm": LLM_HEALTH
+#     }), 200
+# ✅ Fixed
+@app.route('/health')
 def health():
+    with LLM_HEALTH_LOCK:
+        llm_health = dict(LLM_HEALTH)  # copy under lock
     return jsonify({
         "status": "ok",
-        "llm": LLM_HEALTH
-    }), 200
-
+        "llm": llm_health  # frontend reads data.llm.available
+    })
+# @app.route('/api/llm', methods=['POST', 'OPTIONS'])
+# @limiter.limit("60 per minute")
+# def proxy_llm():
+    # log_event("LLM_CALL", ip_address=request.remote_addr)
+    # if request.method == 'OPTIONS':
+    #     return '', 204  # preflight
 @app.route('/api/llm', methods=['POST', 'OPTIONS'])
-@limiter.limit("60 per minute")
+@limiter.limit("100 per minute")
 def proxy_llm():
-    log_event("LLM_CALL", ip_address=request.remote_addr)
     if request.method == 'OPTIONS':
-        return '', 204  # preflight
+        return '', 204
+    payload = request.get_json() or {}
+    log_event(
+        "LLM_CALL",
+        ip_address=request.remote_addr,
+        username=payload.get('username'),
+        job_id=payload.get('job_id'),
+        detail=f"model={payload.get('model','?')}"
+    )
     try:
         payload = request.get_json()
         resp = requests.post(
@@ -244,7 +271,7 @@ def proxy_llm():
 
 
 @app.route("/extract", methods=["POST", "OPTIONS"])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 def extract():
     if request.method == 'OPTIONS':
         return '', 204
@@ -365,6 +392,121 @@ def remove_report():
 def admin_list_reports():
     # In a real app, verify admin status here
     return jsonify(get_all_reports())
+
+
+# ── PDF Storage Routes ──
+
+@app.route('/api/pdfs/upload', methods=['POST', 'OPTIONS'])
+@limiter.limit("30 per minute")
+def upload_pdf():
+    if request.method == 'OPTIONS':
+        return '', 204
+    try:
+        username = request.form.get('username')
+        if not username:
+            return jsonify({'success': False, 'error': 'No username'}), 400
+
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file'}), 400
+
+        pdf = request.files['file']
+        if not pdf.filename.lower().endswith('.pdf'):
+            return jsonify({'success': False, 'error': 'Not a PDF'}), 400
+
+        # Save to storage/pdfs/{username}/{filename}
+        user_dir = os.path.join(PDF_STORAGE_DIR, username)
+        os.makedirs(user_dir, exist_ok=True)
+
+        # Sanitize filename — remove path separators
+        safe_name = os.path.basename(pdf.filename)
+        save_path = os.path.join(user_dir, safe_name)
+        pdf.save(save_path)
+
+        logger.info(f"PDF uploaded: {username}/{safe_name}")
+        return jsonify({'success': True, 'filename': safe_name})
+
+    except Exception as e:
+        logger.error(f"PDF upload error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/pdfs/list', methods=['GET'])
+@limiter.limit("60 per minute")
+def list_pdfs():
+    try:
+        username = request.args.get('username')
+        if not username:
+            return jsonify([])
+
+        user_dir = os.path.join(PDF_STORAGE_DIR, username)
+        if not os.path.exists(user_dir):
+            return jsonify([])
+
+        # Return list of PDF filenames for this user
+        files = [
+            f for f in os.listdir(user_dir)
+            if f.lower().endswith('.pdf')
+        ]
+        return jsonify(files)
+
+    except Exception as e:
+        logger.error(f"PDF list error: {e}")
+        return jsonify([])
+
+
+@app.route('/api/pdfs/download', methods=['GET'])
+@limiter.limit("60 per minute")
+def download_pdf():
+    try:
+        username = request.args.get('username')
+        filename = request.args.get('filename')
+
+        if not username or not filename:
+            return jsonify({'error': 'Missing username or filename'}), 400
+
+        # Sanitize — prevent path traversal attack
+        safe_name = os.path.basename(filename)
+        file_path = os.path.join(PDF_STORAGE_DIR, username, safe_name)
+
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found'}), 404
+
+        return send_file(
+            file_path,
+            mimetype='application/pdf',
+            as_attachment=False,
+            download_name=safe_name
+        )
+
+    except Exception as e:
+        logger.error(f"PDF download error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/pdfs/delete', methods=['DELETE', 'OPTIONS'])
+@limiter.limit("30 per minute")
+def delete_pdf():
+    if request.method == 'OPTIONS':
+        return '', 204
+    try:
+        username = request.args.get('username')
+        filename = request.args.get('filename')
+
+        if not username or not filename:
+            return jsonify({'success': False, 'error': 'Missing params'}), 400
+
+        safe_name = os.path.basename(filename)
+        file_path = os.path.join(PDF_STORAGE_DIR, username, safe_name)
+
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            logger.info(f"PDF deleted: {username}/{safe_name}")
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"PDF delete error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 if __name__ == "__main__":
