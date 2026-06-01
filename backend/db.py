@@ -37,6 +37,7 @@ def init_db():
             reportDate TEXT,
             fmeName TEXT,
             confirmation INTEGER,
+            status TEXT DEFAULT 'pending',
             data_json TEXT NOT NULL,
             savedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (username) REFERENCES users(username),
@@ -56,6 +57,14 @@ def init_db():
             (admin_user, "System Admin", h, 1)
         )
         
+# Migration: add status column to older databases that lack it
+    try:
+        cols = [r['name'] for r in cursor.execute("PRAGMA table_info(reports)").fetchall()]
+        if 'status' not in cols:
+            cursor.execute("ALTER TABLE reports ADD COLUMN status TEXT DEFAULT 'pending'")
+    except Exception as e:
+        print(f"Status column migration skipped: {e}")
+
     conn.commit()
     conn.close()
 
@@ -96,21 +105,55 @@ def is_admin_user(username):
     ).fetchone()
     conn.close()
     return bool(user and user['is_admin'])
+
+def is_admin_user(username):
+    if not username:
+        return False
+    conn = get_db()
+    user = conn.execute(
+        "SELECT is_admin FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+    conn.close()
+    return bool(user and user['is_admin'])
     
+import json
+
 def save_report(username, report_data):
     conn = get_db()
+
     try:
         task_id = report_data.get('taskId')
-        # We store the full JSON but also extract key fields for filtering
+
+        # Store full JSON and extracted fields
         conn.execute('''
             INSERT INTO reports 
-            (username, taskId, fileName, siteId, taskCategory, taskSubcategory, reportDate, fmeName, confirmation, data_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (
+                username,
+                taskId,
+                fileName,
+                siteId,
+                taskCategory,
+                taskSubcategory,
+                reportDate,
+                fmeName,
+                confirmation,
+                status,
+                data_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+
             ON CONFLICT(username, taskId) DO UPDATE SET
-            fileName=excluded.fileName, siteId=excluded.siteId, taskCategory=excluded.taskCategory,
-            taskSubcategory=excluded.taskSubcategory, reportDate=excluded.reportDate,
-            fmeName=excluded.fmeName, confirmation=excluded.confirmation, data_json=excluded.data_json,
-            savedAt=CURRENT_TIMESTAMP
+                fileName = excluded.fileName,
+                siteId = excluded.siteId,
+                taskCategory = excluded.taskCategory,
+                taskSubcategory = excluded.taskSubcategory,
+                reportDate = excluded.reportDate,
+                fmeName = excluded.fmeName,
+                confirmation = excluded.confirmation,
+                status = excluded.status,
+                data_json = excluded.data_json,
+                savedAt = CURRENT_TIMESTAMP
         ''', (
             username,
             task_id,
@@ -121,24 +164,32 @@ def save_report(username, report_data):
             report_data.get('reportDate'),
             report_data.get('fmeName'),
             report_data.get('confirmation'),
+            report_data.get('status', 'pending'),
             json.dumps(report_data)
         ))
+
         conn.commit()
         return True
+
     except Exception as e:
         print(f"Error saving report: {e}")
         return False
+
     finally:
         conn.close()
-
 def get_user_reports(username):
     conn = get_db()
     rows = conn.execute(
-        "SELECT data_json FROM reports WHERE username = ? ORDER BY savedAt DESC",
+        "SELECT data_json, status FROM reports WHERE username = ? ORDER BY savedAt DESC",
         (username,)
     ).fetchall()
     conn.close()
-    return [json.loads(r['data_json']) for r in rows]
+    result = []
+    for r in rows:
+        data = json.loads(r['data_json'])
+        data['status'] = r['status'] or data.get('status') or 'pending'
+        result.append(data)
+    return result
 
 def get_all_reports():
     conn = get_db()
