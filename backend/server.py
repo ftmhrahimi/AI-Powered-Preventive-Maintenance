@@ -15,8 +15,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from extractor import process_pdf
 from config import LLM_SERVER_URL as CONFIG_LLM_URL, BACKEND_HOST, BACKEND_PORT
-from db import init_db, register_user, login_user, save_report, get_user_reports, get_all_reports, delete_report
-
+from db import init_db, register_user, login_user, save_report, get_user_reports, get_all_reports, delete_report, is_admin_user
 # PDF storage directory
 PDF_STORAGE_DIR = os.path.join(os.path.dirname(__file__), 'storage', 'pdfs')
 os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
@@ -117,24 +116,28 @@ def log_event(event_type, detail=None, username=None,
 
 def run_job(job_id, tmp_path):
     with JOB_REGISTRY_LOCK:
+        job_meta = dict(JOB_REGISTRY.get(job_id, {}))
+    username = job_meta.get("username")
+
+    with JOB_REGISTRY_LOCK:
         JOB_REGISTRY[job_id]["status"] = "running"
 
-    log_event("JOB_STARTED", job_id=job_id,
-              detail=JOB_REGISTRY[job_id]["filename"])
 
+    log_event("JOB_STARTED", username=username, job_id=job_id,
+              detail=JOB_REGISTRY[job_id]["filename"], status="running")
     try:
         result = process_pdf(tmp_path)
         with JOB_REGISTRY_LOCK:
             JOB_REGISTRY[job_id]["status"] = "done"
             JOB_REGISTRY[job_id]["result"] = result
             JOB_REGISTRY[job_id]["progress_pct"] = 100
-        log_event("JOB_COMPLETED", job_id=job_id,
+        log_event("JOB_COMPLETED", username=username, job_id=job_id,
                   task_id=result, status="success")
     except Exception as e:
         with JOB_REGISTRY_LOCK:
             JOB_REGISTRY[job_id]["status"] = "failed"
             JOB_REGISTRY[job_id]["error"] = str(e)
-        log_event("JOB_FAILED", job_id=job_id,
+        log_event("JOB_FAILED", username=username, job_id=job_id,
                   detail=str(e), status="failed")
     finally:
         if os.path.exists(tmp_path):
@@ -239,20 +242,26 @@ def proxy_llm():
     if request.method == 'OPTIONS':
         return '', 204
     payload = request.get_json() or {}
-    log_event(
-        "LLM_CALL",
-        ip_address=request.remote_addr,
-        username=payload.get('username'),
-        job_id=payload.get('job_id'),
-        detail=f"model={payload.get('model','?')}"
-    )
-    try:
-        payload = request.get_json()
+    username = payload.get('username')
+    job_id = payload.get('job_id')
+    task_id = payload.get('task_id')
+    model = payload.get('model', '?')
+
+    try:  # <-- Indented 4 spaces
         resp = requests.post(
             LLM_SERVER_URL,
             json=payload,
             timeout=300,
             stream=True  # Stream from LLM server
+        )
+        log_event(
+            "LLM_CALL",
+            ip_address=request.remote_addr,
+            username=username,
+            job_id=job_id,
+            task_id=task_id,
+            status="success" if resp.status_code < 400 else "failed",
+            detail=f"model={model}; upstream_status={resp.status_code}"
         )
 
         # Stream the response back chunk by chunk
@@ -266,7 +275,17 @@ def proxy_llm():
             status=resp.status_code,
             headers={'Content-Type': resp.headers.get('Content-Type', 'application/json')}
         )
-    except Exception as e:
+
+    except Exception as e:  # <-- Line 277: Must align EXACTLY with 'try:' (4 spaces)
+        log_event(
+            "LLM_CALL",
+            ip_address=request.remote_addr,
+            username=username,
+            job_id=job_id,
+            task_id=task_id,
+            status="failed",
+            detail=f"model={model}; error={str(e)}"
+        )
         return jsonify({"error": str(e)}), 500
 
 
@@ -278,6 +297,7 @@ def extract():
     logger.info("\n========================")
     logger.info("NEW EXTRACTION REQUEST")
     logger.info("========================")
+    username = request.form.get("username")
     if "file" not in request.files:
         return jsonify({"success": False, "error": "No file uploaded"}), 400
     pdf = request.files["file"]
@@ -292,6 +312,7 @@ def extract():
                 JOB_REGISTRY[job_id] = {
                     "job_id": job_id,
                     "filename": pdf.filename,
+                    "username": username,
                     "submitted_at": datetime.now(timezone.utc),
                     "status": "pending",
                     "progress_pct": 0,
@@ -301,8 +322,8 @@ def extract():
                 }
 
             executor.submit(run_job, job_id, tmp.name)
-            log_event("PDF_SUBMITTED", detail=pdf.filename,
-                      ip_address=request.remote_addr, job_id=job_id)
+            log_event("PDF_SUBMITTED", username=username, detail=pdf.filename,
+                      ip_address=request.remote_addr, job_id=job_id, status="pending")
 
             return jsonify({"success": True, "job_id": job_id})
     except Exception as e:
@@ -320,6 +341,10 @@ def job_status(job_id):
 @app.route("/audit", methods=["GET"])
 @limiter.limit("60 per minute")
 def audit_log():
+    admin_username = request.args.get("admin_username")
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
+
     username  = request.args.get("username")
     event_type = request.args.get("event_type")
     job_id    = request.args.get("job_id")
@@ -391,6 +416,9 @@ def remove_report():
 @app.route('/api/admin/reports', methods=['GET'])
 def admin_list_reports():
     # In a real app, verify admin status here
+    admin_username = request.args.get("admin_username")
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
     return jsonify(get_all_reports())
 
 
