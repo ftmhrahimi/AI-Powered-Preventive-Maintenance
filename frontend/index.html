@@ -397,8 +397,13 @@
         <button class="btn-pick" id="btnSelectFolder" onclick="document.getElementById('folderInput').click()">Select Folder</button>
         <button class="btn-pick" id="btnAddFiles" onclick="document.getElementById('fileInput').click()" style="background:var(--surface);border:0.5px solid var(--border);color:#333;">＋ Add Files</button>
         <button class="btn-pick" id="btnClearFolder" onclick="clearFolder()" style="background:#6c757d;color:white;display:none;margin-left:5px;">✕ Clear</button>
+          <!-- delete below for see runall,When you want to bring them back later, just change display:none to display:flex -->
+        <div id="globalRunControls" style="display:none;">
         <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;">▶ Run All</button>
         <button class="btn-run" id="btnStopAll" onclick="stopAll()" style="background:#dc3545;display:none;">■ Stop All</button>
+        </div>
+          <!-- <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;">▶ Run All</button>
+        <button class="btn-run" id="btnStopAll" onclick="stopAll()" style="background:#dc3545;display:none;">■ Stop All</button> -->
         <input type="file" id="folderInput" webkitdirectory multiple accept=".pdf" style="display:none"/>
         <input type="file" id="fileInput" multiple accept=".pdf" style="display:none"/>
       </div>
@@ -643,6 +648,88 @@
 'use strict';
 
 /* ══════════════════════════════════════════════
+   INDEXEDDB — PDF FILE STORAGE
+══════════════════════════════════════════════ */
+const DB_NAME    = 'pm_validator_db';
+const DB_VERSION = 1;
+const STORE_NAME = 'pdf_files';
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'key' });
+      }
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function idbSave(key, value) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).put({ key, value });
+    tx.oncomplete = () => resolve();
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+async function idbGet(key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(STORE_NAME, 'readonly');
+    const req = tx.objectStore(STORE_NAME).get(key);
+    req.onsuccess = e => resolve(e.target.result?.value ?? null);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function idbDelete(key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+async function idbClear() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+// Convert File object to storable object
+async function fileToStorable(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      data: e.target.result  // ArrayBuffer
+    });
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// Convert stored object back to File
+function storableToFile(stored) {
+  const blob = new Blob([stored.data], { type: stored.type });
+  return new File([blob], stored.name, { type: stored.type });
+}
+
+/* ══════════════════════════════════════════════
    AUTH / STORAGE
 ══════════════════════════════════════════════ */
 const STORAGE_PREFIX = 'pm_auth_';
@@ -858,30 +945,155 @@ async function startApp(user) {
   switchTab('validator');
   await renderHistory();
 
-  // Bug 4: Restore folder selection from session storage
-  const lastLabel = sessionStorage.getItem('lastFolderLabel');
-  const lastNames = sessionStorage.getItem('lastFileNames');
-  if (lastLabel && lastNames) {
-    const names = JSON.parse(lastNames);
-    document.getElementById('dirPath').textContent = lastLabel + ' (re-select folder to reprocess)';
-    document.getElementById('dirPath').classList.remove('empty');
-    document.getElementById('summaryRow').style.display = 'grid';
-    // Restore jobs array with placeholder file objects (names only)
-    jobs = names.map(name => ({
-      file: { name },
-      taskId: name.replace(/\.pdf$/i, ''),
-      status: 'pending',
-      pct: 0,
-      barLabel: 'Re-select folder to process',
-      confirmation: null,
-      results: [],
-      parsedItems: [],
-      parsedHeader: {},
-      paused: false
-    }));
-    renderJobsTable();
-    updateSummary();
-    updateGlobalBtns();
+  // // Bug 4: Restore folder selection from session storage
+  // const lastLabel = sessionStorage.getItem('lastFolderLabel');
+  // const lastNames = sessionStorage.getItem('lastFileNames');
+  // if (lastLabel && lastNames) {
+  //   const names = JSON.parse(lastNames);
+  //   document.getElementById('dirPath').textContent = lastLabel + ' (re-select folder to reprocess)';
+  //   document.getElementById('dirPath').classList.remove('empty');
+  //   document.getElementById('summaryRow').style.display = 'grid';
+  //   // Restore jobs array with placeholder file objects (names only)
+  //   jobs = names.map(name => ({
+  //     file: { name },
+  //     taskId: name.replace(/\.pdf$/i, ''),
+  //     status: 'pending',
+  //     pct: 0,
+  //     barLabel: 'Re-select folder to process',
+  //     confirmation: null,
+  //     results: [],
+  //     parsedItems: [],
+  //     parsedHeader: {},
+  //     paused: false
+  //   }));
+  //   renderJobsTable();
+  //   updateSummary();
+  //   updateGlobalBtns();
+  // }
+// Restore last session state from IndexedDB
+  try {
+    const fileNames = await idbGet(`pdf_list_${user.username}`);
+    const savedReports = await getUserReports(user.username);
+    const reportMap = {};
+    (savedReports || []).forEach(r => { reportMap[r.fileName || r.taskId] = r; });
+
+// Build jobs from IndexedDB files + backend results
+    const restoredJobs = [];
+
+// First — add jobs from IndexedDB or download from backend
+let backendPdfList = [];
+    try {
+      const res = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/pdfs/list?username=${encodeURIComponent(user.username)}`);
+      backendPdfList = await res.json();
+    } catch(e) { console.error('Could not fetch PDF list from backend:', e); }
+
+    // Get deleted blocklist — never restore these files
+    const deletedList = await idbGet(`pdf_deleted_${user.username}`).catch(() => []) || [];
+
+    // Filter out deleted files from backend list
+    backendPdfList = backendPdfList.filter(name => !deletedList.includes(name));
+
+    // fileNames from IndexedDB is now array of {name, status} objects OR plain strings (old format)
+    const idbJobList = (fileNames || []).map(f =>
+      typeof f === 'string' ? { name: f, status: 'pending' } : f
+    );
+    const idbStatusMap = {};
+    idbJobList.forEach(f => { idbStatusMap[f.name] = f.status; });
+
+// Combine IndexedDB filenames + backend filenames into one unique list
+    // Filter out any files in the deleted blocklist
+    const idbNames     = idbJobList.map(f => f.name).filter(n => !deletedList.includes(n));
+    const allFileNames = [...new Set([...idbNames, ...backendPdfList])];
+    if (allFileNames.length > 0) {
+      for (const name of allFileNames) {
+        const saved = reportMap[name];
+
+        // Try IndexedDB first (fast, same machine)
+        let stored = await idbGet(`pdf_${user.username}_${name}`);
+
+        // If not in IndexedDB, download from backend
+        if (!stored && backendPdfList.includes(name)) {
+          try {
+            const res = await fetch(
+              window.APP_CONFIG.BACKEND_URL +
+              `/api/pdfs/download?username=${encodeURIComponent(user.username)}&filename=${encodeURIComponent(name)}`
+            );
+            if (res.ok) {
+              const blob     = await res.blob();
+              const buffer   = await blob.arrayBuffer();
+              stored = { name, type: 'application/pdf', size: buffer.byteLength, data: buffer };
+              // Cache in IndexedDB for next time on this machine
+              await idbSave(`pdf_${user.username}_${name}`, stored);
+            }
+          } catch(e) { console.error('PDF download failed:', e); }
+        }
+
+if (stored) {
+          const file = storableToFile(stored);
+          // Use saved status from IndexedDB, but backend report overrides to 'done'
+          const restoredStatus = saved ? 'done' : (idbStatusMap[name] || 'pending');
+          restoredJobs.push({
+            file,
+            taskId:       saved?.taskId       || name.replace(/\.pdf$/i, ''),
+            status:       restoredStatus,
+            pct:          restoredStatus === 'done'    ? 100  :
+                          restoredStatus === 'stopped' ? 0    :
+                          restoredStatus === 'error'   ? 100  : 0,
+            barLabel:     restoredStatus === 'done'    ? 'Complete' :
+                          restoredStatus === 'stopped' ? 'Stopped'  :
+                          restoredStatus === 'error'   ? 'Failed'   : 'Waiting…',
+            confirmation: saved?.confirmation ?? null,
+            results:      saved?.results      || [],
+            parsedItems:  saved?.parsedItems  || [],
+            parsedHeader: saved?.parsedHeader || {},
+            paused:  false,
+            aborted: false,
+            _savedReport: !!saved
+          });
+        }
+      }
+    }
+
+    // Second — add backend reports that are NOT already in the list above
+    const restoredNames = new Set(restoredJobs.map(j => j.file.name));
+    for (const saved of (savedReports || [])) {
+      const fname = saved.fileName || saved.taskId;
+      if (restoredNames.has(fname)) continue; // already added from IndexedDB
+      restoredJobs.push({
+        file:         { name: fname },
+        taskId:       saved.taskId,
+        status:       'done',
+        pct:          100,
+        barLabel:     'Complete (re-select file to re-run)',
+        confirmation: saved.confirmation ?? null,
+        results:      saved.results      || [],
+        parsedItems:  saved.parsedItems  || [],
+        parsedHeader: saved.parsedHeader || {},
+        paused:  false,
+        aborted: false,
+        _savedReport: true,
+        _noFile: true
+      });
+    }
+
+// Update IndexedDB file list to include any newly downloaded files
+    const allRestoredNames = restoredJobs.map(j => j.file.name);
+    if (allRestoredNames.length > 0) {
+      await idbSave(`pdf_list_${user.username}`, allRestoredNames);
+    }
+
+    if (restoredJobs.length > 0) {
+      jobs = restoredJobs;
+      const label = sessionStorage.getItem('lastFolderLabel') || `${jobs.length} file${jobs.length !== 1 ? 's' : ''} restored`;
+      document.getElementById('dirPath').textContent = label;
+      document.getElementById('dirPath').classList.remove('empty');
+      document.getElementById('summaryRow').style.display = 'grid';
+      renderJobsTable();
+      updateSummary();
+      updateGlobalBtns();
+    }
+  } catch(e) {
+    console.error('Could not restore session:', e);
   }
 }
 
@@ -900,6 +1112,11 @@ async function _migrateLocalStorageReports(username) {
 
 function doSignOut() {
   clearSession();
+  sessionStorage.removeItem('lastFolderLabel');
+  sessionStorage.removeItem('lastFileNames');
+  // Keep IndexedDB files — they restore on next sign-in
+  // If you want to clear on sign-out instead, uncomment:
+  // idbClear().catch(()=>{});
   currentUser = null;
   jobs = [];
   document.getElementById('folderInput').value = '';
@@ -1009,35 +1226,37 @@ async function saveCurrentReport() {
     results: _stripPhotos(job.results),
     confirmation: job.confirmation,
   };
-  await saveUserReports(currentUser.username, [report]);
+//   await saveUserReports(currentUser.username, [report]);
+//   showToast('✓ Report saved');
+//   if (document.getElementById('panelHistory').style.display !== 'none') await renderHistory();
+// // Bug 4: Restore folder selection from session storage
+//   const lastLabel = sessionStorage.getItem('lastFolderLabel');
+//   const lastNames = sessionStorage.getItem('lastFileNames');
+//   if (lastLabel && lastNames) {
+//     const names = JSON.parse(lastNames);
+//     document.getElementById('dirPath').textContent = lastLabel + ' (re-select folder to reprocess)';
+//     document.getElementById('dirPath').classList.remove('empty');
+//     document.getElementById('summaryRow').style.display = 'grid';
+//     // Restore jobs array with placeholder file objects (names only)
+//     jobs = names.map(name => ({
+//       file: { name },
+//       taskId: name.replace(/.pdf$/i, ''),
+//       status: 'pending',
+//       pct: 0,
+//       barLabel: 'Re-select folder to process',
+//       confirmation: null,
+//       results: [],
+//       parsedItems: [],
+//       parsedHeader: {},
+//       paused: false
+//     }));
+//     renderJobsTable();
+//     updateSummary();
+//     updateGlobalBtns();
+//   }
+await saveUserReports(currentUser.username, [report]);
   showToast('✓ Report saved');
   if (document.getElementById('panelHistory').style.display !== 'none') await renderHistory();
-// Bug 4: Restore folder selection from session storage
-  const lastLabel = sessionStorage.getItem('lastFolderLabel');
-  const lastNames = sessionStorage.getItem('lastFileNames');
-  if (lastLabel && lastNames) {
-    const names = JSON.parse(lastNames);
-    document.getElementById('dirPath').textContent = lastLabel + ' (re-select folder to reprocess)';
-    document.getElementById('dirPath').classList.remove('empty');
-    document.getElementById('summaryRow').style.display = 'grid';
-    // Restore jobs array with placeholder file objects (names only)
-    jobs = names.map(name => ({
-      file: { name },
-      taskId: name.replace(/.pdf$/i, ''),
-      status: 'pending',
-      pct: 0,
-      barLabel: 'Re-select folder to process',
-      confirmation: null,
-      results: [],
-      parsedItems: [],
-      parsedHeader: {},
-      paused: false
-    }));
-    renderJobsTable();
-    updateSummary();
-    updateGlobalBtns();
-  }
-
 }
 
 /* ── Dashboard state ── */
@@ -1236,34 +1455,36 @@ async function deleteHistoryReport(idx) {
   reports.splice(idx, 1);
   await saveUserReports(currentUser.username, reports);
   if (taskId && window.storage) await deleteReportByTaskId(currentUser.username, taskId);
-  await renderHistory();
-// Bug 4: Restore folder selection from session storage
-  const lastLabel = sessionStorage.getItem('lastFolderLabel');
-  const lastNames = sessionStorage.getItem('lastFileNames');
-  if (lastLabel && lastNames) {
-    const names = JSON.parse(lastNames);
-    document.getElementById('dirPath').textContent = lastLabel + ' (re-select folder to reprocess)';
-    document.getElementById('dirPath').classList.remove('empty');
-    document.getElementById('summaryRow').style.display = 'grid';
-    // Restore jobs array with placeholder file objects (names only)
-    jobs = names.map(name => ({
-      file: { name },
-      taskId: name.replace(/.pdf$/i, ''),
-      status: 'pending',
-      pct: 0,
-      barLabel: 'Re-select folder to process',
-      confirmation: null,
-      results: [],
-      parsedItems: [],
-      parsedHeader: {},
-      paused: false
-    }));
-    renderJobsTable();
-    updateSummary();
-    updateGlobalBtns();
-  }
+//   await renderHistory();
+// // Bug 4: Restore folder selection from session storage
+//   const lastLabel = sessionStorage.getItem('lastFolderLabel');
+//   const lastNames = sessionStorage.getItem('lastFileNames');
+//   if (lastLabel && lastNames) {
+//     const names = JSON.parse(lastNames);
+//     document.getElementById('dirPath').textContent = lastLabel + ' (re-select folder to reprocess)';
+//     document.getElementById('dirPath').classList.remove('empty');
+//     document.getElementById('summaryRow').style.display = 'grid';
+//     // Restore jobs array with placeholder file objects (names only)
+//     jobs = names.map(name => ({
+//       file: { name },
+//       taskId: name.replace(/.pdf$/i, ''),
+//       status: 'pending',
+//       pct: 0,
+//       barLabel: 'Re-select folder to process',
+//       confirmation: null,
+//       results: [],
+//       parsedItems: [],
+//       parsedHeader: {},
+//       paused: false
+//     }));
+//     renderJobsTable();
+//     updateSummary();
+//     updateGlobalBtns();
+//   }
 
-  showToast('Report deleted');
+//   showToast('Report deleted');
+await renderHistory();
+  showToast('Report deleted');    
 }
 
 async function openHistoryReport(idx) {
@@ -1314,7 +1535,19 @@ const SITES_DATA = [
 
 let TASK_RULES = {};
 let jobs = [];
-const jobControllers = {}; // stores AbortController per job index
+const jobControllers = {};
+
+// Save current job list status to IndexedDB
+// running jobs saved as pending — they cannot resume after page reload
+function _saveJobListToIdb() {
+  if (!currentUser) return;
+  const list = jobs.map(j => ({
+    name:   j.file.name,
+    // never save 'running' — treat as pending on restore
+    status: (j.status === 'running') ? 'pending' : j.status
+  }));
+  idbSave(`pdf_list_${currentUser.username}`, list).catch(() => {});
+}
 
 
 
@@ -1337,8 +1570,8 @@ function buildJobRow(job, idx) {
   const pctHtml = job.confirmation !== null
     ? `<div class="pct-cell ${job.confirmation>=80?'high':job.confirmation>=50?'mid':'low'}">${job.confirmation}%</div>`
     : `<div class="pct-cell na">—</div>`;
- const reportHtml = job.status === 'done'
-    ? `<button class="btn-view ready" onclick="openModal(${idx})">View Report →</button>`
+const reportHtml = job.status === 'done'
+    ? `<button class="btn-view ready" onclick="openModal(${idx})">${job._savedReport ? '📂 View Report →' : 'View Report →'}</button>`
     : job.status === 'error'
     ? `<span style="font-size:11px;color:var(--red)">Error</span>`
     : job.status === 'stopped'
@@ -1350,8 +1583,9 @@ function buildJobRow(job, idx) {
         ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="stopSingle(${idx})" style="background:#fff0f0;color:#dc3545;border-color:#f5b8b8;">■ Stop</button></div>`;
       } else if (job.status === 'done') {
         ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runSingle(${idx})">↺ Re-run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
-      } else if (job.status === 'error' || job.status === 'stopped') {
-        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runSingle(${idx})">↺ Re-run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
+        } else if (job.status === 'error' || job.status === 'stopped') {
+            const canRun = !job._noFile;
+            ctlHtml = `<div class="col-ctl-wrap">${canRun ? `<button class="btn-job-run" onclick="runSingle(${idx})">↺ Re-run</button>` : `<span style="font-size:10px;color:var(--gray)">Re-select file</span>`}<button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
       } else {
         ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runSingle(${idx})">▶ Run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
       }
@@ -1376,6 +1610,8 @@ function setJob(idx, updates) {
   }
   updateSummary();
   updateGlobalBtns();
+  // Persist current job statuses to IndexedDB
+  _saveJobListToIdb();
 }
 
 function updateSummary() {
@@ -1391,7 +1627,7 @@ function updateSummary() {
 
 /* ── Global buttons ──────────────────────────────────────────────────── */
 function updateGlobalBtns() {
-  const hasPending = jobs.some(j => j.status === 'pending');
+  const hasPending = jobs.some(j => j.status === 'pending' || j.status === 'stopped' || j.status === 'error');
   const isAnyRunning = jobs.some(j => j.status === 'running');
   const btnRun    = document.getElementById('btnRunAll');
   const btnStop   = document.getElementById('btnStopAll');
@@ -1432,43 +1668,33 @@ async function runAll() {
   // Workers run sequentially per slot, looping until NO pending jobs remain
 // Global queue — built once, consumed atomically by all workers
   // Each job gets a unique ticket number — no two workers ever get the same idx
-  const queue = jobs.reduce((acc, j, i) => {
-    if (j.status === 'pending') acc.push(i);
-    return acc;
-  }, []);
-  let queueHead = 0;
+// Reset stopped/error jobs back to pending so they get queued
+  jobs.forEach(j => {
+    if (j.status === 'stopped' || j.status === 'error') j.status = 'pending';
+  });
+  renderJobsTable();
 
-  // Lock so two workers can't grab same slot simultaneously
-  let grabLock = false;
-  async function grabNext() {
-    // Spin until lock is free
-    while (grabLock) await new Promise(r => setTimeout(r, 5));
-    grabLock = true;
-    const idx = queue[queueHead] ?? -1;
-    if (idx !== -1) {
-      queueHead++;
-      // Mark running immediately inside the lock so no other worker sees it as pending
-      jobs[idx].status  = 'running';
-      jobs[idx].aborted = false;
-    }
-    grabLock = false;
-    return idx;
-  }
+  // Build queue of all pending job indices upfront
+  const queue = [];
+  jobs.forEach((j, i) => { if (j.status === 'pending') queue.push(i); });
 
-  const runWorker = async () => {
+  // Process jobs from queue one at a time per worker
+  // Workers call shift() which is synchronous and atomic in JS single thread
+const runWorker = async () => {
     while (true) {
       if (runAllStopped) break;
+      if (queue.length === 0) break;
 
-      const idx = await grabNext();
-      if (idx === -1) break; // queue empty
+      const idx = queue.shift();
+      if (idx === undefined) break;
 
+      // If already running (manually started), skip without re-queuing
+      if (jobs[idx].status === 'running') continue;
+
+      // Lock synchronously — JS single thread guarantees no race here
+      jobs[idx].aborted = false;
+      jobs[idx].status  = 'running';
       setJob(idx, { status: 'running', pct: 0, barLabel: 'Starting…' });
-
-      if (runAllStopped) {
-        jobs[idx].aborted = true;
-        setJob(idx, { status: 'stopped', pct: 0, barLabel: 'Stopped' });
-        break;
-      }
 
       try {
         await processJob(idx);
@@ -1477,11 +1703,9 @@ async function runAll() {
           setJob(idx, { status: 'error', barLabel: 'Error: ' + err.message });
         }
       }
-      // Loop back — worker grabs next job from queue
     }
   };
 
-  // Launch exactly MAX_CONCURRENT workers, each loops until queue empty
   await Promise.all(Array(MAX_CONCURRENT).fill(null).map(() => runWorker()));
 
   runAllActive  = false;
@@ -1607,8 +1831,8 @@ async function processJob(idx) {
     const resolvedTaskId = job.parsedHeader.taskId || job.taskId;
     setJob(idx, {pct:15, barLabel:'Extracting items…'});
     const isEnglish = isEnglishPdf(fullText, job.file.name);
-    const tasks = await extractTasksFromPdf(pdf, isEnglish);
-    const llmItems = await extractItemsWithBatching(tasks, isEnglish);
+    const tasks = await extractTasksFromPdf(pdf, isEnglish, signal);
+    const llmItems = await extractItemsWithBatching(tasks, isEnglish, signal);
     const cleanedItems = isEnglish ? llmItems : await cleanConsecutiveTasks(llmItems);
     job.parsedItems = tasks.map(task => {
       const match = cleanedItems.find(l => parseInt(l.num) === parseInt(task.num));
@@ -1664,7 +1888,29 @@ async function processJob(idx) {
       }
     } catch (e) {}
 
-    setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation });
+setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation });
+    // Auto-save completed job to backend
+    if (currentUser) {
+      const h = job.parsedHeader || {};
+      const report = {
+        id: Date.now(),
+        savedAt: new Date().toISOString(),
+        fileName: job.file.name,
+        taskId: h.taskId || job.taskId,
+        siteId: h.siteId || '',
+        taskCategory: h.taskCategory || '',
+        taskSubcategory: h.taskSubcategory || '',
+        reportDate: h.reportDate || '',
+        fmeName: h.fmeName || '',
+        parsedHeader: h,
+        parsedItems: job.parsedItems,
+        results: _stripPhotos(job.results),
+        confirmation,
+      };
+      saveUserReports(currentUser.username, [report]).catch(e => console.error('Auto-save failed:', e));
+      // Update IndexedDB file list with current job statuses
+      _saveJobListToIdb();
+    }
 } catch (err) {
     // Clean up controller
     if (jobControllers[idx]) { delete jobControllers[idx]; }
@@ -1679,7 +1925,7 @@ async function processJob(idx) {
 }
 
 /* PDF parsing — identical to original */
-async function extractTasksFromPdf(pdf, isEnglish=false) {
+async function extractTasksFromPdf(pdf, isEnglish=false, signal=null) {
   const tasks = []; let taskCounter = 1;
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
@@ -1694,7 +1940,7 @@ async function extractTasksFromPdf(pdf, isEnglish=false) {
       ? anchorYs.map((y,i)=>({anchorY:y,top:i===0?1e5:(anchorYs[i-1]+y)/2,bottom:i===anchorYs.length-1?-1e5:(y+anchorYs[i+1])/2}))
       : anchorYs.map((y,i)=>({anchorY:y,top:i===0?1e5:(anchorYs[i-1]+y)/4,bottom:i===anchorYs.length-1?-1e5:y-(anchorYs[i]-anchorYs[i+1])/4}));
     const strips = await getCheckboxStripImage(pdf,pageNum,anchorYs);
-    const results = await Promise.all(strips.map(detectCheckboxFromStrip));
+    const results = await Promise.all(strips.map(s => detectCheckboxFromStrip(s, signal)));
     for (let bi=0;bi<boundaries.length;bi++){
       const {top,bottom}=boundaries[bi];const result=results[bi]??'OK';
       // const box=items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+10)).filter(it=>!/(^|\b)(ok|not\s*ok)(\b|$)|☑|☐|✓|✗/i.test(it.str));
@@ -1721,17 +1967,72 @@ async function getCheckboxStripImage(pdf,pageNum,anchorYs){
     return strip.toDataURL('image/jpeg',0.9);
   });
 }
+/* ══════════════════════════════════════════════
+   CENTRAL LLM CALLER — handles 429 + retries
+══════════════════════════════════════════════ */
+const LLM_RATE_STATE = {
+  isThrottled: false,
+  retryAfter: 0,
+};
 
-async function detectCheckboxFromStrip(stripBase64){
-  const prompt=`This image shows a single checkbox row from a maintenance report. It contains two checkboxes: one for "OK" and one for "Not OK". Look carefully at which checkbox has a checkmark/tick inside it.\nReturn ONLY one of these two values, nothing else:\nOK\nNOT_OK`;
-try{
-    const res=await fetch(LLM_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:LLM_MODEL,messages:[{role:'user',content:[{type:'text',text:prompt},{type:'image_url',image_url:{url:stripBase64}}]}],temperature:0})});
-    if(res.status===429){return 'OK';} // rate limited — default to OK
-    const data=await res.json();const answer=(data.choices?.[0]?.message?.content||'').trim().toUpperCase();
-    return answer.includes('NOT_OK')?'NOT_OK':'OK';
-  }catch(e){if(e.name==='AbortError')throw e; return 'OK';}
+function showLlmStatus(msg, isError = false) {
+  // Non-intrusive status bar — doesn't block the UI
+  let bar = document.getElementById('llmStatusBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'llmStatusBar';
+    bar.style.cssText = `
+      position:fixed; bottom:60px; right:24px; z-index:9998;
+      background:${isError ? '#fff3cd' : '#e8f4fd'};
+      border:0.5px solid ${isError ? '#ffc107' : '#90cdf4'};
+      border-radius:10px; padding:10px 16px; font-size:12px;
+      color:${isError ? '#856404' : '#2b6cb0'}; max-width:320px;
+      box-shadow:0 2px 8px rgba(0,0,0,.1); transition:opacity .3s;
+    `;
+    document.body.appendChild(bar);
+  }
+  bar.textContent = msg;
+  bar.style.opacity = '1';
+  bar.style.display = 'block';
 }
 
+function hideLlmStatus() {
+  const bar = document.getElementById('llmStatusBar');
+  if (bar) {
+    bar.style.opacity = '0';
+    setTimeout(() => { if (bar) bar.style.display = 'none'; }, 300);
+  }
+}
+
+
+
+// Helper: sleep that respects abort signal
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new Error('Job aborted'));
+      }, { once: true });
+    }
+  });
+}
+async function detectCheckboxFromStrip(stripBase64, signal){
+  const prompt = `This image shows a single checkbox row from a maintenance report. 
+It contains two checkboxes: one for "OK" and one for "Not OK". 
+Look carefully at which checkbox has a checkmark/tick inside it.
+Return ONLY one of these two values, nothing else:
+OK
+NOT_OK`;
+  try{
+    const data = await llmCall({model:LLM_MODEL,messages:[{role:'user',content:[{type:'text',text:prompt},{type:'image_url',image_url:{url:stripBase64}}]}],temperature:0}, signal);
+    const answer=(data.choices?.[0]?.message?.content||'').trim().toUpperCase();
+    return answer.includes('NOT_OK')?'NOT_OK':'OK';
+  }catch(e){
+    if(e.message==='Job aborted') throw e;
+    return 'OK';
+  }}
 function dedupeItems(items){
   const seen=new Map();
   items.forEach(item=>{
@@ -1742,29 +2043,44 @@ function dedupeItems(items){
   return Array.from(seen.values()).sort((a,b)=>a.num-b.num);
 }
 
-async function extractItemsWithBatching(tasks, isEnglish=false){
-  const CHUNK_SIZE=5;let allItems=[];
+async function extractItemsWithBatching(tasks, isEnglish=false, signal=null){
+  const CHUNK_SIZE=5; let allItems=[];
   for(let i=0;i<tasks.length;i+=CHUNK_SIZE){
+    if(signal && signal.aborted) throw new Error('Job aborted');
     const batch=tasks.slice(i,i+CHUNK_SIZE);
     const text=batch.map(t=>`${t.num}. ${t.desc}\nNot OK`).join('\n');
-    const results=await callLLMExtract(text, isEnglish);
+    const results=await callLLMExtract(text, isEnglish, signal);
     if(!results.length){allItems.push(...batch.map(t=>({num:t.num,desc:t.desc,result:'NOT_OK'})));continue;}
     allItems.push(...results);
   }
   return dedupeItems(allItems);
 }
-
-async function callLLMExtract(textChunk, isEnglish=false){
+async function callLLMExtract(textChunk, isEnglish=false, signal=null){
     const prompt = isEnglish
       ? `Extract numbered maintenance tasks from this English text. Each item starts with a number like "1.", "2.", etc.\nThe same description may appear 2-5 times repeated — pick it ONCE only.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete clean description for that number, NO repetition inside desc\n- result is always NOT_OK\n- One entry per number, never duplicate the same number\n- If the same sentence appears multiple times inside one item's text, include it only once\n- Ignore lines without a number prefix\n- Ignore lines containing only "battery wo falt darad" or "Not OK" or "OK"\nRAW TEXT:\n${textChunk}`  
     : `The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nTASK:\n1. If Persian: fix character shaping and joining.\n2. If English: fix any broken words.\n3. Extract each unique maintenance task description cleanly.\n4. Return ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean task description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do not duplicate sentences\n\nRAW TEXT:\n${textChunk}`;
+
   try{
-    const res=await fetch(LLM_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:LLM_MODEL,messages:[{role:'user',content:prompt}],temperature:0.0})});
-    if(!res.ok)return[];
-    const data=await res.json();const raw=data.choices?.[0]?.message?.content||'';
-    const match=raw.match(/\[[\s\S]*\]/);return match?JSON.parse(match[0]):[];
-  }catch{return[];}
+    const data = await llmCall({model:LLM_MODEL, messages:[{role:'user',content:prompt}], temperature:0.0}, signal);
+    const raw = data.choices?.[0]?.message?.content || '';
+    const match = raw.match(/\[[\s\S]*\]/);
+    return match ? JSON.parse(match[0]) : [];
+  } catch(e) {
+    if (e.message === 'Job aborted') throw e;
+    return [];
+  }
 }
+// async function callLLMExtract(textChunk, isEnglish=false){
+//     const prompt = isEnglish
+//       ? `Extract numbered maintenance tasks from this English text. Each item starts with a number like "1.", "2.", etc.\nThe same description may appear 2-5 times repeated — pick it ONCE only.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete clean description for that number, NO repetition inside desc\n- result is always NOT_OK\n- One entry per number, never duplicate the same number\n- If the same sentence appears multiple times inside one item's text, include it only once\n- Ignore lines without a number prefix\n- Ignore lines containing only "battery wo falt darad" or "Not OK" or "OK"\nRAW TEXT:\n${textChunk}`  
+//     : `The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nTASK:\n1. If Persian: fix character shaping and joining.\n2. If English: fix any broken words.\n3. Extract each unique maintenance task description cleanly.\n4. Return ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean task description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do not duplicate sentences\n\nRAW TEXT:\n${textChunk}`;
+//   try{
+//     const res=await fetch(LLM_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:LLM_MODEL,messages:[{role:'user',content:prompt}],temperature:0.0})});
+//     if(!res.ok)return[];
+//     const data=await res.json();const raw=data.choices?.[0]?.message?.content||'';
+//     const match=raw.match(/\[[\s\S]*\]/);return match?JSON.parse(match[0]):[];
+//   }catch{return[];}
+// }
 
 async function cleanConsecutiveTasks(items) {
   if (items.length < 2) return items;
@@ -2019,33 +2335,35 @@ document.getElementById('modalOverlay').addEventListener('click',e=>{
 });
 
 /* ══ UTILITIES ══ */
-async function callLLM(content, signal){
-  const MAX_RETRIES = 5;
-  let delay = 2000;
+// Central LLM caller — all LLM requests go through here
+// Handles 429 retry with backoff, abort signal, CORS abort noise suppression
+async function llmCall(body, signal) {
+  const MAX_RETRIES = 6;
+  let delay = 3000;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     if (signal && signal.aborted) throw new Error('Job aborted');
     try {
       const res = await fetch(LLM_URL, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({model:LLM_MODEL, messages:[{role:'user',content}]}),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
         signal
       });
       if (res.status === 429) {
-        // Too many requests — wait and retry
         const retryAfter = parseInt(res.headers.get('Retry-After') || '0') * 1000 || delay;
-        await new Promise(r => setTimeout(r, retryAfter));
-        delay = Math.min(delay * 2, 30000); // exponential backoff max 30s
+        const waitTime = Math.max(retryAfter, delay);
+        console.log(`LLM 429 — waiting ${waitTime}ms before retry ${attempt+1}/${MAX_RETRIES}`);
+        await new Promise(r => setTimeout(r, waitTime));
+        delay = Math.min(delay * 2, 60000);
         continue;
       }
-      const data = await res.json();
-      if (!data.choices || !data.choices.length) throw new Error('Invalid LLM response: ' + JSON.stringify(data));
-      return data.choices[0].message.content;
+      if (!res.ok) throw new Error(`LLM HTTP ${res.status}`);
+      return await res.json();
     } catch(err) {
       if (err.name === 'AbortError' || err.message === 'Job aborted') throw new Error('Job aborted');
       if (attempt < MAX_RETRIES - 1) {
         await new Promise(r => setTimeout(r, delay));
-        delay = Math.min(delay * 2, 30000);
+        delay = Math.min(delay * 2, 60000);
       } else {
         throw err;
       }
@@ -2054,6 +2372,11 @@ async function callLLM(content, signal){
   throw new Error('LLM failed after retries');
 }
 
+async function callLLM(content, signal) {
+  const data = await llmCall({ model: LLM_MODEL, messages: [{ role: 'user', content }] }, signal);
+  if (!data.choices || !data.choices.length) throw new Error('Invalid LLM response');
+  return data.choices[0].message.content;
+}
 function haversine(lat1,lon1,lat2,lon2){
   const R=6371000,φ1=lat1*Math.PI/180,φ2=lat2*Math.PI/180,Δφ=(lat2-lat1)*Math.PI/180,Δλ=(lon2-lon1)*Math.PI/180;
   const a=Math.sin(Δφ/2)**2+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
@@ -2137,12 +2460,65 @@ function handleFiles(newFiles) {
   updateSummary();
   updateGlobalBtns();
 
-  // Bug 4: Persist folder selection
-  sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').textContent);
-  sessionStorage.setItem('lastFileNames', JSON.stringify(jobs.map(j => j.file.name)));
+sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').textContent);
+(async () => {
+    try {
+      // Remove newly uploaded files from deleted blocklist
+      const deletedList = await idbGet(`pdf_deleted_${currentUser.username}`).catch(() => []) || [];
+      const newNames    = pdfs.map(f => f.name);
+      const updatedList = deletedList.filter(n => !newNames.includes(n));
+      await idbSave(`pdf_deleted_${currentUser.username}`, updatedList).catch(() => {});
+
+      for (const f of pdfs) {
+        // Save to IndexedDB for same-machine fast restore
+        const storable = await fileToStorable(f);
+        await idbSave(`pdf_${currentUser.username}_${f.name}`, storable);
+
+        // Upload to backend so other machines can download it
+        const formData = new FormData();
+        formData.append('file', f);
+        formData.append('username', currentUser.username);
+        await fetch(window.APP_CONFIG.BACKEND_URL + '/api/pdfs/upload', {
+          method: 'POST',
+          body: formData
+        });
+      }
+      await idbSave(`pdf_list_${currentUser.username}`, jobs.map(j => j.file.name));
+    } catch(e) { console.error('Save error:', e); }
+  })();
 }
 
 function clearFolder() {
+  if (!currentUser) return;
+
+  // Delete every file from backend and IndexedDB before clearing UI
+  const filesToDelete = jobs.map(j => j.file.name);
+
+  filesToDelete.forEach(name => {
+    // Delete from backend
+    fetch(
+      window.APP_CONFIG.BACKEND_URL +
+      `/api/pdfs/delete?username=${encodeURIComponent(currentUser.username)}&filename=${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    ).catch(e => console.error('Backend delete failed:', e));
+
+    // Delete from IndexedDB cache
+    idbDelete(`pdf_${currentUser.username}_${name}`).catch(() => {});
+  });
+
+// Add all cleared files to deleted blocklist
+  idbGet(`pdf_deleted_${currentUser.username}`).then(list => {
+    const deleted = list || [];
+    filesToDelete.forEach(name => {
+      if (!deleted.includes(name)) deleted.push(name);
+    });
+    idbSave(`pdf_deleted_${currentUser.username}`, deleted).catch(() => {});
+  }).catch(() => {});
+
+  // Clear IndexedDB file list
+  idbSave(`pdf_list_${currentUser.username}`, []).catch(() => {});
+
+  // Clear UI
   jobs = [];
   document.getElementById('dirPath').textContent = 'No folder selected — click "Select Folder" to begin';
   document.getElementById('dirPath').classList.add('empty');
@@ -2155,11 +2531,11 @@ function clearFolder() {
   updateSummary();
   updateGlobalBtns();
 }
-
 function removeJob(idx) {
   if (jobs[idx].status === 'running') return;
+  const removedName = jobs[idx].file.name;
   jobs.splice(idx, 1);
-  sessionStorage.setItem('lastFileNames', JSON.stringify(jobs.map(j => j.file.name)));
+
   if (jobs.length === 0) {
     document.getElementById('dirPath').textContent = 'No folder selected — click "Select Folder" to begin';
     document.getElementById('dirPath').classList.add('empty');
@@ -2170,6 +2546,28 @@ function removeJob(idx) {
   renderJobsTable();
   updateSummary();
   updateGlobalBtns();
+
+  if (!currentUser) return;
+
+  // Delete from backend storage
+  fetch(
+    window.APP_CONFIG.BACKEND_URL +
+    `/api/pdfs/delete?username=${encodeURIComponent(currentUser.username)}&filename=${encodeURIComponent(removedName)}`,
+    { method: 'DELETE' }
+  ).catch(e => console.error('Backend PDF delete failed:', e));
+
+// Delete from IndexedDB cache
+  idbDelete(`pdf_${currentUser.username}_${removedName}`).catch(() => {});
+
+  // Add to deleted blocklist so it never restores again
+  idbGet(`pdf_deleted_${currentUser.username}`).then(list => {
+    const deleted = list || [];
+    if (!deleted.includes(removedName)) deleted.push(removedName);
+    idbSave(`pdf_deleted_${currentUser.username}`, deleted).catch(() => {});
+  }).catch(() => {});
+
+  // Update IndexedDB file list
+  _saveJobListToIdb();
 }
 
 document.getElementById('folderInput').addEventListener('change', e => handleFiles(e.target.files));
