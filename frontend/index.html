@@ -384,8 +384,8 @@
   <div id="subnav" class="subnav" style="display:none;">
     <button class="subnav-tab active" id="tabValidator" onclick="switchTab('validator')">▶ Validator</button>
     <button class="subnav-tab" id="tabHistory" onclick="switchTab('history')">📊 Dashboard</button>
-    <button class="subnav-tab" id="tabAudit" onclick="switchTab('audit')" style="display:none;">📜 Audit Log</button>
-    <button class="subnav-tab" id="tabAdmin" onclick="switchTab('admin')" style="display:none;">⚙ System Admin</button>
+    <button class="subnav-tab" id="tabAdmin" onclick="switchTab('admin')" style="display:none;">📊 Dashboard</button>
+    <button class="subnav-tab" id="tabAudit" onclick="switchTab('audit')" style="display:none;">📜 Audit</button>
   </div>
 
   <!-- VALIDATOR TAB -->
@@ -586,10 +586,7 @@
    <!-- ADMIN TAB -->
   <div id="panelAdmin" style="display:none;">
     <div class="main-pad">
-      <div class="subnav" style="display:flex;margin:0 0 18px 0;padding:0;border:none;">
-        <button class="subnav-tab active" id="adminTabDashboard" onclick="switchAdminTab('dashboard')">📊 Dashboard</button>
-        <button class="subnav-tab" id="adminTabAudit" onclick="switchAdminTab('audit')">📜 Audit</button>
-      </div>
+
 
       <div id="adminDashboardPanel">
         <div class="history-header">
@@ -999,11 +996,13 @@ async function startApp(user) {
   document.getElementById('userLabel').textContent = name;
 
   if (isAdmin) {
+    document.getElementById('tabHistory').style.display = 'none';
     document.getElementById('tabAdmin').style.display = '';
     document.getElementById('tabAudit').style.display = '';
   } else {
+    document.getElementById('tabHistory').style.display = '';
     document.getElementById('tabAdmin').style.display = 'none';
-    document.getElementById('tabAudit').style.display = 'none'
+    document.getElementById('tabAudit').style.display = 'none';
   }
 
   switchTab('validator');
@@ -1185,7 +1184,9 @@ function doSignOut() {
   jobs = [];
   document.getElementById('folderInput').value = '';
   document.getElementById('fileInput').value = '';
+  document.getElementById('tabHistory').style.display = '';
   document.getElementById('tabAdmin').style.display = 'none';
+  document.getElementById('tabAudit').style.display = 'none';
   document.getElementById('subnav').style.display = 'none';
   document.getElementById('appShell').classList.remove('visible');
   document.getElementById('authScreen').style.display = 'flex';
@@ -1193,7 +1194,6 @@ function doSignOut() {
   document.getElementById('loginPass').value = '';
   switchAuthTab('login');
 }
-
 /* Auto-restore session */
 window.addEventListener('DOMContentLoaded', () => {
   const session = getSessionUser();
@@ -1252,8 +1252,8 @@ async function checkLlmHealth() {
    TABS
 ══════════════════════════════════════════════ */
 function switchTab(tab) {
-  const openAdminAudit = tab === 'audit' && currentUser?.isAdmin;
-  if (openAdminAudit) tab = 'admin';
+  const adminSubtab = tab === 'audit' && currentUser?.isAdmin ? 'audit' : 'dashboard';
+  if (tab === 'audit' && currentUser?.isAdmin) tab = 'admin';
   if (tab === 'audit' || (tab === 'admin' && (!currentUser || !currentUser.isAdmin))) tab = 'validator';
   document.getElementById('panelValidator').style.display = tab === 'validator' ? '' : 'none';
   document.getElementById('panelHistory').style.display   = tab === 'history' ? '' : 'none';
@@ -1261,11 +1261,11 @@ function switchTab(tab) {
 
   document.getElementById('tabValidator').classList.toggle('active', tab === 'validator');
   document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
-  document.getElementById('tabAudit').classList.toggle('active', false);
-  document.getElementById('tabAdmin').classList.toggle('active', tab === 'admin');
+  document.getElementById('tabAdmin').classList.toggle('active', tab === 'admin' && adminSubtab === 'dashboard');
+  document.getElementById('tabAudit').classList.toggle('active', tab === 'admin' && adminSubtab === 'audit');
 
   if (tab === 'history') renderHistory().catch(()=>{});
-  if (tab === 'admin') switchAdminTab(openAdminAudit ? 'audit' : 'dashboard');
+  if (tab === 'admin') switchAdminTab(adminSubtab);
 }
 /* ══════════════════════════════════════════════
    SAVE / HISTORY
@@ -1325,8 +1325,8 @@ function switchAdminTab(tab) {
   if (!currentUser || !currentUser.isAdmin) return;
   document.getElementById('adminDashboardPanel').style.display = tab === 'dashboard' ? '' : 'none';
   document.getElementById('adminAuditPanel').style.display = tab === 'audit' ? '' : 'none';
-  document.getElementById('adminTabDashboard').classList.toggle('active', tab === 'dashboard');
-  document.getElementById('adminTabAudit').classList.toggle('active', tab === 'audit');
+  document.getElementById('tabAdmin').classList.toggle('active', tab === 'dashboard');
+  document.getElementById('tabAudit').classList.toggle('active', tab === 'audit');
   if (tab === 'dashboard') renderAdmin().catch(()=>{});
   if (tab === 'audit') loadAuditLog().catch(()=>{});
 }
@@ -1442,8 +1442,7 @@ function applyAdminDashboardFilters() {
         <div class="db-conf-bar"><div class="db-conf-fill" style="width:${conf}%;background:${fc2}"></div></div>
       </td>
       <td style="text-align:center"><span class="vbadge ${disp?'vb-disputed':'vb-confirmed'}">${disp?'Disputed':'Validated'}</span></td>
-      <td style="text-align:center" onclick="event.stopPropagation()">
-        <button class="btn-view ready" onclick="openHistoryReport(${origIdx})">View Report</button>      
+      <td style="text-align:center" onclick="event.stopPropagation()">   
         <button class="btn-view ready" onclick="openAdminReport(${idx})">View Report</button>
         <button class="btn-delete" onclick="deleteReportByTaskId('${escAttr(r.owner)}','${escAttr(r.taskId)}').then(renderAdmin)" title="Delete">🗑</button>
       </td>
