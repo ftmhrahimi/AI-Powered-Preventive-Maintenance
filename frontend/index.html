@@ -1046,8 +1046,17 @@ try {
       getUserReports(user.username)
     ]);
 
-    const reportMap = {};
+const reportMap = {};
     (savedReports || []).forEach(r => { reportMap[r.fileName || r.taskId] = r; });
+
+    // Load saved statuses from IndexedDB (stopped/error/pending)
+    const idbJobList = await idbGet(`pdf_list_${user.username}`).catch(() => []) || [];
+    const idbStatusMap = {};
+    (Array.isArray(idbJobList) ? idbJobList : []).forEach(f => {
+      const name = typeof f === 'string' ? f : f.name;
+      const status = typeof f === 'string' ? 'pending' : f.status;
+      idbStatusMap[name] = status;
+    });
 
     if (backendFiles.length === 0 && savedReports.length === 0) return;
 
@@ -1083,13 +1092,17 @@ try {
 
       if (!file) continue; // skip if we couldn't get the file
 
-      const status = saved ? 'done' : 'pending';
+const idbStatus = idbStatusMap?.[name] || 'pending';
+      const status = saved ? 'done' : (idbStatus === 'running' ? 'pending' : idbStatus);
       restoredJobs.push({
         file,
         taskId:       saved?.taskId       || name.replace(/\.pdf$/i, ''),
         status,
-        pct:          status === 'done' ? 100 : 0,
-        barLabel:     status === 'done' ? 'Complete' : 'Waiting…',
+        pct:          status === 'done'    ? 100 :
+                      status === 'error'   ? 100 : 0,
+        barLabel:     status === 'done'    ? 'Complete' :
+                      status === 'stopped' ? 'Stopped'  :
+                      status === 'error'   ? 'Failed'   : 'Waiting…',
         confirmation: saved?.confirmation ?? null,
         results:      saved?.results      || [],
         parsedItems:  saved?.parsedItems  || [],
@@ -1773,7 +1786,7 @@ function setJob(idx, updates) {
   updateSummary();
   updateGlobalBtns();
   // Persist current job statuses to IndexedDB
-  // _saveJobListToIdb();
+   _saveJobListToIdb();
 }
 
 function updateSummary() {
@@ -2072,7 +2085,7 @@ setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation });
       };
       saveUserReports(currentUser.username, [report]).catch(e => console.error('Auto-save failed:', e));
       // Update IndexedDB file list with current job statuses
-      // _saveJobListToIdb();
+      _saveJobListToIdb();
     }
 } catch (err) {
     // Clean up controller
