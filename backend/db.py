@@ -67,6 +67,7 @@ def init_db():
 
     conn.commit()
     conn.close()
+    init_user_files_table()
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -212,6 +213,82 @@ def delete_report(username, task_id):
     conn.execute(
         "DELETE FROM reports WHERE username = ? AND taskId = ?",
         (username, task_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def init_user_files_table():
+    conn = get_db()
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS user_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            fileName TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            confirmation INTEGER,
+            data_json TEXT NOT NULL,
+            updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(username, fileName),
+            FOREIGN KEY (username) REFERENCES users(username)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+
+def save_user_file(username, file_data):
+    conn = get_db()
+    try:
+        conn.execute('''
+            INSERT INTO user_files (username, fileName, status, confirmation, data_json)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(username, fileName) DO UPDATE SET
+                status = excluded.status,
+                confirmation = excluded.confirmation,
+                data_json = excluded.data_json,
+                updatedAt = CURRENT_TIMESTAMP
+        ''', (
+            username,
+            file_data.get('fileName'),
+            file_data.get('status', 'pending'),
+            file_data.get('confirmation'),
+            json.dumps(file_data)
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error saving user file: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_user_files(username):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT data_json FROM user_files WHERE username = ? ORDER BY updatedAt ASC",
+        (username,)
+    ).fetchall()
+    conn.close()
+    return [json.loads(r['data_json']) for r in rows]
+
+
+def delete_user_file(username, file_name):
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM user_files WHERE username = ? AND fileName = ?",
+        (username, file_name)
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_all_user_files(username):
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM user_files WHERE username = ?",
+        (username,)
     )
     conn.commit()
     conn.close()
