@@ -308,6 +308,26 @@
     .db-conf-bar{height:5px;background:#eee;border-radius:99px;overflow:hidden;margin-top:4px;}
     .db-conf-fill{height:100%;border-radius:99px;}
     th[onclick]:hover{background:#f0f0f0;}
+
+    /* ══ DUPLICATE CONFIRM MODAL ══ */
+    #dupModalOverlay{
+      display:none;position:fixed;inset:0;
+      background:rgba(0,0,0,.55);z-index:10000;
+      align-items:center;justify-content:center;
+    }
+    .dup-modal-box{
+      background:#fff;border-radius:14px;padding:28px 30px;
+      max-width:500px;width:90%;
+      box-shadow:0 8px 40px rgba(0,0,0,.25);
+      border:0.5px solid var(--border);
+    }
+    .dup-modal-title{font-size:15px;font-weight:600;color:#1a1a1a;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+    .dup-modal-msg{font-size:13px;color:#444;line-height:1.7;margin-bottom:22px;}
+    .dup-modal-btns{display:flex;gap:10px;justify-content:flex-end;}
+    .dup-btn-cancel{padding:9px 22px;background:var(--surface);border:0.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:500;color:#333;cursor:pointer;}
+    .dup-btn-cancel:hover{background:#eee;}
+    .dup-btn-replace{padding:9px 22px;background:var(--red);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;}
+    .dup-btn-replace:hover{background:#c82333;}
   </style>
 </head>
 <body>
@@ -402,13 +422,10 @@
         <button class="btn-pick" id="btnSelectFolder" onclick="document.getElementById('folderInput').click()">Select Folder</button>
         <button class="btn-pick" id="btnAddFiles" onclick="document.getElementById('fileInput').click()" style="background:var(--surface);border:0.5px solid var(--border);color:#333;">＋ Add Files</button>
         <button class="btn-pick" id="btnClearFolder" onclick="clearFolder()" style="background:#6c757d;color:white;display:none;margin-left:5px;">✕ Clear</button>
-          <!-- delete below for see runall,When you want to bring them back later, just change display:none to display:flex -->
-        <div id="globalRunControls" style="display:none;">
+        <div id="globalRunControls" style="display:flex;gap:8px;align-items:center;">
         <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;">▶ Run All</button>
         <button class="btn-run" id="btnStopAll" onclick="stopAll()" style="background:#dc3545;display:none;">■ Stop All</button>
         </div>
-          <!-- <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;">▶ Run All</button>
-        <button class="btn-run" id="btnStopAll" onclick="stopAll()" style="background:#dc3545;display:none;">■ Stop All</button> -->
         <input type="file" id="folderInput" webkitdirectory multiple accept=".pdf" style="display:none"/>
         <input type="file" id="fileInput" multiple accept=".pdf" style="display:none"/>
       </div>
@@ -663,12 +680,9 @@
             <thead>
               <tr>
                 <th style="width:160px;">Time (UTC)</th>
-                <th style="width:100px;">User</th>
-                <th style="width:140px;">Event</th>
-                <th style="width:130px;">Task ID</th>
-                <th style="width:80px;">Status</th>
-                <th>Detail</th>
-                <th style="width:110px;">IP Address</th>
+                <th style="width:180px;">Event Type</th>
+                <th>Description</th>
+                <th style="width:160px;">User / IP</th>
               </tr>
             </thead>
             <tbody id="auditTableBody"></tbody>
@@ -1507,16 +1521,27 @@ async function loadAuditLog() {
       tbody.innerHTML = '<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--gray);">No audit events found.</td></tr>';
       return;
     }
+    const AUDIT_BADGE_STYLES = {
+      'JOB_COMPLETED':  'background:#d4edda;color:#155724;border:0.5px solid #c3e6cb',
+      'JOB_FAILED':     'background:#f8d7da;color:#721c24;border:0.5px solid #f5c6cb',
+      'LLM_CALL':       'background:#cce5ff;color:#004085;border:0.5px solid #b8daff',
+      'LLM_FAILURE':    'background:#f8d7da;color:#721c24;border:0.5px solid #f5c6cb',
+      'PDF_SUBMITTED':  'background:#fff3cd;color:#856404;border:0.5px solid #ffeeba',
+      'FILE_DELETED':   'background:#e2e3e5;color:#383d41;border:0.5px solid #d6d8db',
+      'FILE_REPLACED':  'background:#fff8d6;color:#533f03;border:0.5px solid #ffe082',
+      'JOB_STARTED':    'background:#d1ecf1;color:#0c5460;border:0.5px solid #bee5eb',
+      'STOP_ALL':       'background:#e2e3e5;color:#383d41;border:0.5px solid #d6d8db',
+    };
     tbody.innerHTML = logs.map(l => {
       const ts = l.timestamp.replace('T', ' ').substring(0, 19);
+      const badgeStyle = AUDIT_BADGE_STYLES[l.event_type] || 'background:#e2e3e5;color:#383d41;border:0.5px solid #d6d8db';
+      const desc = escHtml(l.description || l.detail || '—');
+      const userIp = escHtml((l.username || '—') + ' / ' + (l.ip_address || '—'));
       return `<tr>
-        <td style="font-family:var(--mono);font-size:11px;">${ts}</td>
-        <td style="font-weight:600;">${escHtml(l.username || '—')}</td>
-        <td style="font-size:11px;"><code>${escHtml(l.event_type)}</code></td>
-        <td style="font-family:var(--mono);font-size:11px;">${escHtml(l.task_id || '—')}</td>
-        <td style="text-align:center;"><span class="vbadge ${l.status === 'success' ? 'vb-confirmed' : l.status === 'failed' ? 'vb-disputed' : 'vb-no-ev'}">${escHtml(l.status || '—')}</span></td>
-        <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(l.detail || '')}">${escHtml(l.detail || '—')}</td>
-        <td style="font-family:var(--mono);font-size:11px;">${escHtml(l.ip_address || '—')}</td>
+        <td style="font-family:var(--mono);font-size:11px;white-space:nowrap;">${ts}</td>
+        <td><span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:99px;font-size:10px;font-weight:600;white-space:nowrap;${badgeStyle}">${escHtml(l.event_type)}</span></td>
+        <td style="font-size:12px;color:#2d3748;">${desc}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${userIp}</td>
       </tr>`;
     }).join('');
   } catch (err) {
@@ -1862,24 +1887,29 @@ async function runAll() {
   if (runAllActive) return;
   runAllActive  = true;
   runAllStopped = false;
-  jobs.forEach(j => { if (j.status === 'pending') j.aborted = false; });
+
+  // Build queue of all eligible job indices BEFORE marking them
+  const queue = [];
+  jobs.forEach((j, i) => {
+    if (j.status === 'pending' || j.status === 'stopped' || j.status === 'error') {
+      queue.push(i);
+    }
+  });
+
+  // Immediately mark ALL queued jobs as "running" in the UI (visual indicator)
+  queue.forEach(idx => {
+    jobs[idx].aborted  = false;
+    jobs[idx].status   = 'running';
+    jobs[idx].pct      = 0;
+    jobs[idx].barLabel = 'Queued…';
+  });
+  renderJobsTable();
   updateGlobalBtns();
 
   const MAX_CONCURRENT = 3;
 
-  // Semaphore — only MAX_CONCURRENT jobs run at once
-  // Workers run sequentially per slot, looping until NO pending jobs remain
-// Global queue — built once, consumed atomically by all workers
-  // Each job gets a unique ticket number — no two workers ever get the same idx
-  renderJobsTable();
-
-  // Build queue of all pending job indices upfront
-  const queue = [];
-  jobs.forEach((j, i) => { if (j.status === 'pending') queue.push(i); });
-
-  // Process jobs from queue one at a time per worker
-  // Workers call shift() which is synchronous and atomic in JS single thread
-const runWorker = async () => {
+  // Workers pull from the queue and process one job at a time each
+  const runWorker = async () => {
     while (true) {
       if (runAllStopped) break;
       if (queue.length === 0) break;
@@ -1887,12 +1917,9 @@ const runWorker = async () => {
       const idx = queue.shift();
       if (idx === undefined) break;
 
-      // If already running (manually started), skip without re-queuing
-      if (jobs[idx].status === 'running') continue;
+      // Skip if stopped externally between queueing and picking up
+      if (jobs[idx].aborted || jobs[idx].status === 'stopped') continue;
 
-      // Lock synchronously — JS single thread guarantees no race here
-      jobs[idx].aborted = false;
-      jobs[idx].status  = 'running';
       setJob(idx, { status: 'running', pct: 0, barLabel: 'Starting…' });
 
       try {
@@ -1918,9 +1945,11 @@ async function checkJobPause(idx) {
   if (jobs[idx].aborted) throw new Error('Job aborted');
 }
 /* ── Stop All ────────────────────────────────────────────────────────── */
-function stopAll() {
+async function stopAll() {
   runAllStopped = true;
   runAllActive  = false;
+
+  // Hard-stop all running jobs immediately in the UI
   jobs.forEach((j, i) => {
     if (j.status === 'running') {
       j.aborted = true;
@@ -1929,6 +1958,11 @@ function stopAll() {
       setJob(i, {status:'stopped', pct:0, barLabel:'Stopped'});
     }
   });
+
+  // Notify backend to cancel any server-side extraction
+  try {
+    await fetch(window.APP_CONFIG.BACKEND_URL + '/stop-all', { method: 'POST' });
+  } catch(e) { console.warn('Stop-all backend call failed:', e); }
 }
 /* ── Run single job independently ────────────────────────────────────── */
 async function runSingle(idx) {
@@ -2622,11 +2656,66 @@ function lbKeyHandler(e) {
   if (e.key === 'Escape')     closeLightbox();
 }
 
-function handleFiles(newFiles) {
+function showDupModal(filename) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('dupModalOverlay');
+    document.getElementById('dupModalMsg').innerHTML =
+      `The file <strong>${escHtml(filename)}</strong> already exists in the queue. ` +
+      `Do you want to replace it? The existing report (if any) will be permanently deleted ` +
+      `and this file will be re-added as waiting.`;
+    overlay.style.display = 'flex';
+
+    const btnReplace = document.getElementById('dupModalReplace');
+    const btnCancel  = document.getElementById('dupModalCancel');
+
+    const cleanup = () => {
+      overlay.style.display = 'none';
+      btnReplace.removeEventListener('click', onReplace);
+      btnCancel.removeEventListener('click', onCancel);
+    };
+    const onReplace = () => { cleanup(); resolve(true);  };
+    const onCancel  = () => { cleanup(); resolve(false); };
+
+    btnReplace.addEventListener('click', onReplace);
+    btnCancel.addEventListener('click', onCancel);
+  });
+}
+
+async function handleFiles(newFiles) {
   const pdfs = Array.from(newFiles).filter(f => f.name.toLowerCase().endsWith('.pdf'));
   if (!pdfs.length) return;
 
-  const newJobs = pdfs.map(f => ({
+  // Check each file for duplicates and resolve sequentially
+  const toAdd = [];
+  for (const f of pdfs) {
+    const existingIdx = jobs.findIndex(j => j.file && j.file.name === f.name);
+    if (existingIdx !== -1) {
+      const replace = await showDupModal(f.name);
+      if (!replace) continue; // Skip this file
+
+      // Remove existing job from queue
+      const oldJob = jobs[existingIdx];
+      jobs.splice(existingIdx, 1);
+
+      // Clean up backend records for the replaced file
+      if (currentUser) {
+        const _user = currentUser;
+        try {
+          await fetch(window.APP_CONFIG.BACKEND_URL + '/api/files/replace', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ username: _user.username, filename: f.name })
+          });
+          await idbDelete(`pdf_${_user.username}_${f.name}`).catch(() => {});
+        } catch(e) { console.error('Replace cleanup failed:', e); }
+      }
+    }
+    toAdd.push(f);
+  }
+
+  if (!toAdd.length) return;
+
+  const newJobs = toAdd.map(f => ({
     file: f,
     taskId: f.name.replace(/\.pdf$/i, ''),
     status: 'pending',
@@ -2649,12 +2738,12 @@ function handleFiles(newFiles) {
   updateSummary();
   updateGlobalBtns();
 
-sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').textContent);
-if (!currentUser) return;
-const _user = currentUser;
-(async () => {
+  sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').textContent);
+  if (!currentUser) return;
+  const _user = currentUser;
+  (async () => {
     try {
-      for (const f of pdfs) {
+      for (const f of toAdd) {
         const storable = await fileToStorable(f);
         await idbSave(`pdf_${_user.username}_${f.name}`, storable);
 
@@ -2733,6 +2822,18 @@ function removeJob(idx) {
 document.getElementById('folderInput').addEventListener('change', e => handleFiles(e.target.files));
 document.getElementById('fileInput').addEventListener('change', e => handleFiles(e.target.files));
 </script>
+
+<!-- ══ DUPLICATE CONFIRM MODAL ══ -->
+<div id="dupModalOverlay">
+  <div class="dup-modal-box">
+    <div class="dup-modal-title">⚠ Duplicate File Detected</div>
+    <p id="dupModalMsg" class="dup-modal-msg"></p>
+    <div class="dup-modal-btns">
+      <button class="dup-btn-cancel" id="dupModalCancel">Cancel</button>
+      <button class="dup-btn-replace" id="dupModalReplace">Replace</button>
+    </div>
+  </div>
+</div>
 
 <!-- ══ LIGHTBOX ══ -->
 <div class="lb-overlay" id="lbOverlay" onclick="lbBgClick(event)">
