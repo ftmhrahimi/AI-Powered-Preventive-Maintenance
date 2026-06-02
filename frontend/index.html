@@ -122,7 +122,7 @@
 
     /* ══ MAIN CONTENT ══ */
     .main-pad{padding:24px 24px;max-width:1140px;margin:0 auto;}
-
+    .admin-main-pad{max-width:none;width:100%;box-sizing:border-box;}
     /* ══ HISTORY PANEL ══ */
     .history-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
     .history-header h2{font-size:15px;font-weight:600;color:#1a1a1a;}
@@ -176,8 +176,9 @@
     .stat-num.red{color:var(--red);}
     .stat-lbl{font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;font-family:var(--mono);}
     .table-wrap{background:var(--white);border:0.5px solid var(--border);border-radius:12px;overflow:hidden;}
-     .admin-table-wrap{overflow-x:auto;}
-    .admin-reports-table{min-width:1320px;}
+     .admin-table-wrap{overflow-x:visible;}
+    .admin-reports-table{min-width:0;width:100%;}
+    .admin-reports-table th,.admin-reports-table td{padding-left:8px;padding-right:8px;}
     .admin-actions{display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;}
     .admin-actions .btn-view{padding:6px 10px;font-size:11px;line-height:1.2;}
     .admin-actions .btn-delete{padding:6px 8px;line-height:1.2;flex:0 0 auto;}     
@@ -607,7 +608,7 @@
 
    <!-- ADMIN TAB -->
   <div id="panelAdmin" style="display:none;">
-    <div class="main-pad">
+   <div class="main-pad admin-main-pad">
 
 
       <div id="adminDashboardPanel">
@@ -649,7 +650,8 @@
               <tr>
                 <th style="width:100px;cursor:pointer" onclick="adminDbSort('owner')">Owner <span id="admin-sort-owner"></span></th>
                 <th style="width:150px;cursor:pointer" onclick="adminDbSort('taskId')">Task ID <span id="admin-sort-taskId"></span></th>
-                <th style="width:170px;cursor:pointer" onclick="adminDbSort('fileName')">File Name <span id="admin-sort-fileName"></span></th>
+        <th style="width:170px;cursor:pointer" onclick="adminDbSort('fileName')">File Name <span id="admin-sort-fileName"></span></th>
+                <!-- <th style="width:170px;cursor:pointer" onclick="adminDbSort('fileName')">File Name <span id="admin-sort-fileName"></span></th> -->
                 <th style="width:90px;cursor:pointer" onclick="adminDbSort('siteId')">Site ID <span id="admin-sort-siteId"></span></th>
                 <th style="width:140px;cursor:pointer" onclick="adminDbSort('taskCategory')">Category <span id="admin-sort-taskCategory"></span></th>
                 <th style="width:160px;cursor:pointer" onclick="adminDbSort('taskSubcategory')">Subcategory <span id="admin-sort-taskSubcategory"></span></th>
@@ -1076,10 +1078,12 @@ async function startApp(user) {
 
   if (isAdmin) {
     document.getElementById('tabValidator').style.display = 'none';
+    document.getElementById('tabValidator').style.display = 'none';
     document.getElementById('tabHistory').style.display = 'none';
     document.getElementById('tabAdmin').style.display = '';
     document.getElementById('tabAudit').style.display = '';
   } else {
+    document.getElementById('tabValidator').style.display = '';      
     document.getElementById('tabValidator').style.display = '';
     document.getElementById('tabHistory').style.display = '';
     document.getElementById('tabAdmin').style.display = 'none';
@@ -1415,7 +1419,8 @@ function getAdminDashboardFilteredReports(reports = adminReportsCache) {
   const maxRaw    = parseInt(g('adminMaxConf'));
   const maxConf   = isNaN(maxRaw) ? 100 : maxRaw;
   return reports.filter(r => {
-    if (owner    && !(r.owner||'').toLowerCase().includes(owner)) return false;
+    const ownerText = `${r.ownerName || ''} ${r.owner || ''}`.toLowerCase();
+    if (owner    && !ownerText.includes(owner)) return false;
     if (taskId   && !(r.taskId||'').toLowerCase().includes(taskId)) return false;
     if (siteId   && !(r.siteId||'').toLowerCase().includes(siteId)) return false;
     if (category && r.taskCategory !== category) return false;
@@ -1435,7 +1440,8 @@ function applyAdminDashboardFilters() {
   updateAdminKpis(adminReportsCache);
   adminFilteredReports = getAdminDashboardFilteredReports();
   adminFilteredReports.sort((a, b) => {
-    let va = a[adminSortKey] ?? '', vb = b[adminSortKey] ?? '';
+        let va = adminSortKey === 'owner' ? (a.ownerName || a.owner || '') : (a[adminSortKey] ?? '');
+    let vb = adminSortKey === 'owner' ? (b.ownerName || b.owner || '') : (b[adminSortKey] ?? '');
     if (va < vb) return -adminSortDir; if (va > vb) return adminSortDir; return 0;
   });
   ['owner','taskId','fileName','siteId','taskCategory','taskSubcategory','reportDate','fmeName','confirmation'].forEach(k => {
@@ -1451,13 +1457,13 @@ function applyAdminDashboardFilters() {
     return;
   }
   tbody.innerHTML = adminFilteredReports.map((r, idx) => {
-    const conf = r.confirmation ?? 0;
+ const conf = r.confirmation ?? 0;
     const cc   = conf>=80?'high':conf>=50?'mid':'low';
     const fc2  = conf>=80?'var(--green)':conf>=50?'#d4a017':'var(--red)';
     const disp = (r.results||[]).some(x => x.verdict==='DISPUTED');
     const rd   = r.reportDate ? r.reportDate.substring(0,10) : '—';
     return `<tr style="cursor:pointer" onclick="openAdminReport(${idx})">
-      <td style="font-weight:600;color:var(--gold-dark)">${escHtml(r.owner||'—')}</td>
+      <td style="font-weight:600;color:var(--gold-dark)" title="${escHtml(r.owner||'')}">${escHtml(r.ownerName||r.owner||'—')}</td>
       <td style="font-family:var(--mono);font-size:11px;font-weight:600">${escHtml(r.taskId||'—')}</td>
       <td style="font-family:var(--mono);font-size:11px" onclick="event.stopPropagation()">${r.fileName ? `<button class="btn-view ready" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(r.fileName)}" onclick="openAdminPdfForReport(${idx})">${escHtml(r.fileName)}</button>` : '—'}</td>
       <td style="font-family:var(--mono);font-size:11px">${escHtml(r.siteId||'—')}</td>
@@ -1506,7 +1512,7 @@ function openAdminPdfForReport(idx) {
 function openAdminReport(idx) {
   const r = adminFilteredReports[idx];
   if (!r) return;
-  renderModalContent(r.parsedHeader, r.parsedItems, r.results, `${r.taskId || r.fileName} — ${r.owner}`,
+  renderModalContent(r.parsedHeader, r.parsedItems, r.results, `${r.taskId || r.fileName} — ${r.ownerName || r.owner}`,
     'adminModalTitle','adminModalVerdict','adminModalStats','adminModalHeaderInfo','adminModalBody');
   document.getElementById('adminModalOverlay').classList.add('open');
 }
