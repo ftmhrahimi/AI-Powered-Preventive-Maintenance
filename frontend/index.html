@@ -2574,7 +2574,7 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
     <div class="acceptance-row">
       <div class="acceptance-label">Acceptance Rate</div>
       <div class="acceptance-val" style="color:${accColor}">${acceptRate}%</div>
-      <div style="font-size:11px;color:var(--gray);font-family:var(--mono)">${matches} of ${evidenceItems} items — AI &amp; reporter opinions match</div>
+      <div style="font-size:11px;color:var(--gray);font-family:var(--mono)">${matches} of ${evidenceItems} evaluated items — AI assessment and field report are in agreement</div>
     </div>`;
   document.getElementById(headerInfoId).innerHTML=`
     <div class="hinfo-item"><div class="hinfo-label">Task ID</div><div class="hinfo-value">${escHtml(h.taskId||'-')}</div></div>
