@@ -239,7 +239,20 @@
     .verdict-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:99px;font-size:12px;font-weight:600;}
     .vb-valid{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
     .vb-invalid{background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
-    .modal-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;}
+    .modal-stats{margin-bottom:18px;}
+    .modal-stats-table{width:100%;border-collapse:collapse;font-size:12px;border-radius:9px;overflow:hidden;border:0.5px solid var(--border);}
+    .modal-stats-table th{background:var(--surface);padding:8px 12px;font-size:10px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;font-family:var(--mono);border:0.5px solid var(--border);text-align:center;}
+    .modal-stats-table th:first-child{text-align:left;}
+    .modal-stats-table td{padding:9px 12px;border:0.5px solid var(--border);text-align:center;background:#fff;}
+    .modal-stats-table td:first-child{font-size:11px;font-weight:600;color:#1a1a1a;text-align:left;background:var(--surface);font-family:var(--mono);}
+    .mstat-rate{font-size:15px;font-weight:700;}
+    .mstat-count{font-size:13px;font-weight:600;}
+    .mstat-count.green{color:var(--green);}
+    .mstat-count.red{color:var(--red);}
+    .mstat-count.gold{color:var(--gold-dark);}
+    .acceptance-row{display:flex;align-items:center;gap:12px;margin-top:10px;padding:10px 14px;background:var(--surface);border-radius:9px;border:0.5px solid var(--border);}
+    .acceptance-label{font-size:10px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;font-family:var(--mono);}
+    .acceptance-val{font-size:20px;font-weight:700;}
     .mstat{background:var(--surface);border-radius:9px;padding:12px;text-align:center;}
     .mstat-num{font-size:18px;font-weight:600;color:#1a1a1a;}
     .mstat-num.gold{color:var(--gold-dark);}
@@ -435,7 +448,7 @@
         <div class="stat-card"><div class="stat-num gold" id="sumTotal">0</div><div class="stat-lbl">Total Files</div></div>
         <div class="stat-card"><div class="stat-num green" id="sumDone">0</div><div class="stat-lbl">Completed</div></div>
         <div class="stat-card"><div class="stat-num red" id="sumDisputed">0</div><div class="stat-lbl">Disputed</div></div>
-        <div class="stat-card"><div class="stat-num gold" id="sumAvgPct">—</div><div class="stat-lbl">Avg Confirmation</div></div>
+        <div class="stat-card"><div class="stat-num gold" id="sumAvgPct">—</div><div class="stat-lbl">Avg Acceptance</div></div>
       </div>
 
       <div class="table-wrap">
@@ -445,7 +458,7 @@
               <th class="col-id">File Name</th>
               <th class="col-task">Task ID</th>
               <th class="col-bar">Progress</th>
-              <th class="col-pct">Confirmation</th>
+              <th class="col-pct">Acceptance Rate</th>
               <th class="col-ctl">Control</th>
               <th class="col-act">Report</th>
             </tr>
@@ -483,7 +496,7 @@
               <thead>
                 <tr>
                   <th>#</th><th>Item Description</th><th>Photo Checks</th>
-                  <th>PDF Status</th><th>Status Match</th><th>AI Verdict</th><th>AI Explanation</th>
+                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
                 </tr>
               </thead>
               <tbody id="modalBody"></tbody>
@@ -503,7 +516,7 @@
         <div class="db-kpi"><div class="db-kpi-num" id="kpiTotal">—</div><div class="db-kpi-lbl">Total Reports</div></div>
         <div class="db-kpi"><div class="db-kpi-num green" id="kpiValidated">—</div><div class="db-kpi-lbl">Fully Validated</div></div>
         <div class="db-kpi"><div class="db-kpi-num red" id="kpiDisputed">—</div><div class="db-kpi-lbl">Disputed</div></div>
-        <div class="db-kpi"><div class="db-kpi-num gold" id="kpiAvgConf">—</div><div class="db-kpi-lbl">Avg Confirmation</div></div>
+        <div class="db-kpi"><div class="db-kpi-num gold" id="kpiAvgConf">—</div><div class="db-kpi-lbl">Avg Acceptance Rate</div></div>
         <div class="db-kpi"><div class="db-kpi-num" id="kpiSites">—</div><div class="db-kpi-lbl">Unique Sites</div></div>
       </div>
 
@@ -567,7 +580,7 @@
               <th style="width:160px;cursor:pointer" onclick="dbSort('taskSubcategory')">Subcategory <span id="sort-taskSubcategory"></span></th>
               <th style="width:110px;cursor:pointer" onclick="dbSort('reportDate')">Date <span id="sort-reportDate"></span></th>
               <th style="width:130px;cursor:pointer" onclick="dbSort('fmeName')">FME <span id="sort-fmeName"></span></th>
-              <th style="width:90px;cursor:pointer;text-align:center" onclick="dbSort('confirmation')">Confirmation <span id="sort-confirmation"></span></th>
+              <th style="width:90px;cursor:pointer;text-align:center" onclick="dbSort('confirmation')">Acceptance Rate <span id="sort-confirmation"></span></th>
               <th style="width:80px;text-align:center">Status</th>
               <th style="width:150px;text-align:center">Actions</th>
             </tr>
@@ -595,7 +608,7 @@
               <thead>
                 <tr>
                   <th>#</th><th>Item Description</th><th>Photo Checks</th>
-                  <th>PDF Status</th><th>Status Match</th><th>AI Verdict</th><th>AI Explanation</th>
+                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
                 </tr>
               </thead>
               <tbody id="histModalBody"></tbody>
@@ -621,7 +634,7 @@
           <div class="db-kpi"><div class="db-kpi-num" id="adminKpiTotal">—</div><div class="db-kpi-lbl">Total Reports</div></div>
           <div class="db-kpi"><div class="db-kpi-num green" id="adminKpiValidated">—</div><div class="db-kpi-lbl">Fully Validated</div></div>
           <div class="db-kpi"><div class="db-kpi-num red" id="adminKpiDisputed">—</div><div class="db-kpi-lbl">Disputed</div></div>
-          <div class="db-kpi"><div class="db-kpi-num gold" id="adminKpiAvgConf">—</div><div class="db-kpi-lbl">Avg Confirmation</div></div>
+          <div class="db-kpi"><div class="db-kpi-num gold" id="adminKpiAvgConf">—</div><div class="db-kpi-lbl">Avg Acceptance Rate</div></div>
           <div class="db-kpi"><div class="db-kpi-num" id="adminKpiSites">—</div><div class="db-kpi-lbl">Unique Sites</div></div>
         </div>
 
@@ -657,7 +670,7 @@
                 <th style="width:160px;cursor:pointer" onclick="adminDbSort('taskSubcategory')">Subcategory <span id="admin-sort-taskSubcategory"></span></th>
                 <th style="width:110px;cursor:pointer" onclick="adminDbSort('reportDate')">Date <span id="admin-sort-reportDate"></span></th>
                 <th style="width:130px;cursor:pointer" onclick="adminDbSort('fmeName')">FME <span id="admin-sort-fmeName"></span></th>
-                <th style="width:90px;cursor:pointer;text-align:center" onclick="adminDbSort('confirmation')">Confirmation <span id="admin-sort-confirmation"></span></th>
+                <th style="width:90px;cursor:pointer;text-align:center" onclick="adminDbSort('confirmation')">Acceptance Rate <span id="admin-sort-confirmation"></span></th>
                 <th style="width:80px;text-align:center">Status</th>
                 <th style="width:150px;text-align:center">Actions</th>
               </tr>
@@ -712,7 +725,7 @@
               <thead>
                 <tr>
                   <th>#</th><th>Item Description</th><th>Photo Checks</th>
-                  <th>PDF Status</th><th>Status Match</th><th>AI Verdict</th><th>AI Explanation</th>
+                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
                 </tr>
               </thead>
               <tbody id="adminModalBody"></tbody>
@@ -1320,6 +1333,7 @@ async function saveCurrentReport() {
     parsedItems: job.parsedItems,
     results: _stripPhotos(job.results),
     confirmation: job.confirmation,
+    acceptanceRate: job.acceptanceRate ?? null,
   };
 
 //       parsedItems: [],
@@ -1395,7 +1409,7 @@ function updateAdminKpis(reports) {
   const filtered  = getAdminDashboardFilteredReports(reports);
   const validated = filtered.filter(r => !(r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
   const disputed  = filtered.filter(r =>  (r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
-  const pcts = filtered.map(r => r.confirmation).filter(v => v != null);
+  const pcts = filtered.map(r => r.acceptanceRate ?? r.confirmation).filter(v => v != null);
   const avg  = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
   const sites = new Set(filtered.map(r => r.siteId).filter(Boolean)).size;
   document.getElementById('adminKpiTotal').textContent     = filtered.length;
@@ -1457,7 +1471,7 @@ function applyAdminDashboardFilters() {
     return;
   }
   tbody.innerHTML = adminFilteredReports.map((r, idx) => {
- const conf = r.confirmation ?? 0;
+  const conf = r.acceptanceRate ?? r.confirmation ?? 0;
     const cc   = conf>=80?'high':conf>=50?'mid':'low';
     const fc2  = conf>=80?'var(--green)':conf>=50?'#d4a017':'var(--red)';
     const disp = (r.results||[]).some(x => x.verdict==='DISPUTED');
@@ -1584,7 +1598,7 @@ function updateKpis(reports) {
   const filtered  = getFilteredReports(reports);
   const validated = filtered.filter(r => !(r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
   const disputed  = filtered.filter(r =>  (r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
-  const pcts = filtered.map(r => r.confirmation).filter(v => v != null);
+  const pcts = filtered.map(r => r.acceptanceRate ?? r.confirmation).filter(v => v != null);
   const avg  = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
   const sites = new Set(filtered.map(r => r.siteId).filter(Boolean)).size;
   document.getElementById('kpiTotal').textContent     = filtered.length;
@@ -1644,7 +1658,7 @@ async function applyFilters() {
     return;
   }
   tbody.innerHTML = filtered.map(r => {
-    const conf = r.confirmation ?? 0;
+    const conf = r.acceptanceRate ?? r.confirmation ?? 0;
     const cc   = conf>=80?'high':conf>=50?'mid':'low';
     const fc2  = conf>=80?'var(--green)':conf>=50?'#d4a017':'var(--red)';
     const disp = (r.results||[]).some(x => x.verdict==='DISPUTED');
@@ -1796,6 +1810,7 @@ async function syncJobStatus(job) {
       taskId: job.file.name.replace(/\.pdf$/i, ''),
       status: job.status,
       confirmation: job.confirmation ?? null,
+      acceptanceRate: job.acceptanceRate ?? null,
       parsedHeader: job.parsedHeader || {},
       parsedItems: job.parsedItems || [],
       results: _stripPhotos(job.results || [])
@@ -1820,8 +1835,9 @@ function renderJobsTable() {
 }
 
 function buildJobRow(job, idx) {
-  const pctHtml = job.confirmation !== null
-    ? `<div class="pct-cell ${job.confirmation>=80?'high':job.confirmation>=50?'mid':'low'}">${job.confirmation}%</div>`
+  const ar = job.acceptanceRate ?? job.confirmation;
+  const pctHtml = ar !== null && ar !== undefined
+    ? `<div class="pct-cell ${ar>=80?'high':ar>=50?'mid':'low'}">${ar}%</div>`
     : `<div class="pct-cell na">—</div>`;
 const reportHtml = job.status === 'done'
     ? `<button class="btn-view ready" onclick="openModal(${idx})">${job._savedReport ? '📂 View Report →' : 'View Report →'}</button>`
@@ -1864,7 +1880,7 @@ function setJob(idx, updates) {
 function updateSummary() {
   const done     = jobs.filter(j => j.status==='done').length;
   const disputed = jobs.filter(j => j.status==='done' && j.confirmation!==null && j.confirmation<100).length;
-  const pcts     = jobs.filter(j => j.confirmation!==null).map(j => j.confirmation);
+  const pcts     = jobs.filter(j => j.acceptanceRate!=null||j.confirmation!=null).map(j => j.acceptanceRate??j.confirmation);
   const avg      = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
   document.getElementById('sumTotal').textContent    = jobs.length;
   document.getElementById('sumDone').textContent     = done;
@@ -2130,6 +2146,15 @@ async function processJob(idx) {
     const confirmed = results.filter(r => r.verdict==='CONFIRMED').length;
     const total = results.length;
     const confirmation = total > 0 ? Math.round(confirmed/total*100) : 0;
+    let matchCount = 0;
+    results.forEach(r => {
+      const item = (job.parsedItems||[]).find(i => i.num === r.row) || {};
+      const pdfOk = (item.result||'').toUpperCase() === 'OK';
+      const aiConf = r.verdict === 'CONFIRMED';
+      if (r.verdict !== 'NO_EVIDENCE' && ((pdfOk && aiConf) || (!pdfOk && !aiConf))) matchCount++;
+    });
+    const evidenceItems = results.filter(r => r.verdict !== 'NO_EVIDENCE').length;
+    const acceptanceRate = evidenceItems > 0 ? Math.round(matchCount / evidenceItems * 100) : 0;
 
     // Check LLM health after processing completes
     try {
@@ -2145,7 +2170,7 @@ async function processJob(idx) {
       }
     } catch (e) {}
 
-setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation });
+setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation, acceptanceRate });
   } catch (err) {
     // Clean up controller
     if (jobControllers[idx]) { delete jobControllers[idx]; }
@@ -2293,7 +2318,7 @@ async function extractItemsWithBatching(tasks, isEnglish=false, signal=null){
 async function callLLMExtract(textChunk, isEnglish=false, signal=null){
     const prompt = isEnglish
       ? `Extract numbered maintenance tasks from this English text. Each item starts with a number like "1.", "2.", etc.\nThe same description may appear 2-5 times repeated — pick it ONCE only.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete clean description for that number, NO repetition inside desc\n- result is always NOT_OK\n- One entry per number, never duplicate the same number\n- If the same sentence appears multiple times inside one item's text, include it only once\n- Ignore lines without a number prefix\n- Ignore lines containing only "battery wo falt darad" or "Not OK" or "OK"\nRAW TEXT:\n${textChunk}`  
-    : `The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nTASK:\n1. If Persian: fix character shaping and joining.\n2. If English: fix any broken words.\n3. Extract each unique maintenance task description cleanly.\n4. Return ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean task description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do not duplicate sentences\n\nRAW TEXT:\n${textChunk}`;
+    : `The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nCRITICAL: Do NOT translate any text. Keep Persian text in Persian .\nTASK:\n1. If Persian: fix character shaping and joining.\n2. If English: fix any broken words.\n3. Extract each unique maintenance task description cleanly.\n4. Return ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean task description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do not duplicate sentences\n\nRAW TEXT:\n${textChunk}`;
 
   try{
     const data = await llmCall({model:LLM_MODEL, messages:[{role:'user',content:prompt}], temperature:0.0}, signal);
@@ -2497,16 +2522,60 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
   const confirmed=results.filter(r=>r.verdict==='CONFIRMED').length;
   const disputed=results.filter(r=>r.verdict==='DISPUTED').length;
   const total=results.length;
-  const pct=total>0?Math.round(confirmed/total*100):0;
+  const aiRate=total>0?Math.round(confirmed/total*100):0;
+  const repOk=(parsedItems||[]).filter(i=>(i.result||'').toUpperCase()==='OK').length;
+  const repNotOk=(parsedItems||[]).filter(i=>(i.result||'').toUpperCase()==='NOT_OK'||(i.result||'').toUpperCase()==='NOT OK').length;
+  const repTotal=(parsedItems||[]).filter(i=>i.result).length||total;
+  const repRate=repTotal>0?Math.round(repOk/repTotal*100):0;
+  let matches=0;
+  results.forEach(r=>{
+    const item=(parsedItems||[]).find(i=>i.num===r.row)||{};
+    const pdfOk=(item.result||'').toUpperCase()==='OK';
+    const aiConf=r.verdict==='CONFIRMED';
+    if(r.verdict!=='NO_EVIDENCE'&&((pdfOk&&aiConf)||(!pdfOk&&!aiConf)))matches++;
+  });
+  const evidenceItems=results.filter(r=>r.verdict!=='NO_EVIDENCE').length;
+  const acceptRate=evidenceItems>0?Math.round(matches/evidenceItems*100):0;
+  const aiColor=aiRate>=80?'var(--green)':aiRate>=50?'#d4a017':'var(--red)';
+  const repColor=repRate>=80?'var(--green)':repRate>=50?'#d4a017':'var(--red)';
+  const accColor=acceptRate>=80?'var(--green)':acceptRate>=50?'#d4a017':'var(--red)';
   document.getElementById(titleId).textContent='Report — '+(titleText||'');
   const badge=document.getElementById(verdictId);
   badge.className='verdict-badge '+(disputed===0?'vb-valid':'vb-invalid');
   badge.textContent=disputed===0?'✓ Validated':'✗ Disputed';
   document.getElementById(statsId).innerHTML=`
-    <div class="mstat"><div class="mstat-num gold">${pct}%</div><div class="mstat-lbl">Confirmation</div></div>
-    <div class="mstat"><div class="mstat-num green">${confirmed}</div><div class="mstat-lbl">Confirmed</div></div>
-    <div class="mstat"><div class="mstat-num red">${disputed}</div><div class="mstat-lbl">Disputed</div></div>
-    <div class="mstat"><div class="mstat-num">${total}</div><div class="mstat-lbl">Total Items</div></div>`;
+    <table class="modal-stats-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>OK Rate</th>
+          <th>✓ OK</th>
+          <th>✗ Not OK</th>
+          <th>Total Items</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>AI Assessment</td>
+          <td><span class="mstat-rate" style="color:${aiColor}">${aiRate}%</span></td>
+          <td><span class="mstat-count green">${confirmed}</span></td>
+          <td><span class="mstat-count red">${disputed}</span></td>
+          <td><span class="mstat-count">${total}</span></td>
+        </tr>
+        <tr>
+          <td>Field Report</td>
+          <td><span class="mstat-rate" style="color:${repColor}">${repRate}%</span></td>
+          <td><span class="mstat-count green">${repOk}</span></td>
+          <td><span class="mstat-count red">${repNotOk}</span></td>
+          <td><span class="mstat-count">${repTotal}</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="acceptance-row">
+      <div class="acceptance-label">Acceptance Rate</div>
+      <div class="acceptance-val" style="color:${accColor}">${acceptRate}%</div>
+      <div style="font-size:11px;color:var(--gray);font-family:var(--mono)">${matches} of ${evidenceItems} evaluated items — AI assessment and field report are in agreement</div>
+    </div>`;
   document.getElementById(headerInfoId).innerHTML=`
     <div class="hinfo-item"><div class="hinfo-label">Task ID</div><div class="hinfo-value">${escHtml(h.taskId||'-')}</div></div>
     <div class="hinfo-item"><div class="hinfo-label">Site ID</div><div class="hinfo-value">${escHtml(h.siteId||'-')}</div></div>
@@ -2551,14 +2620,15 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
       statusClass=matched?'meta-ok':'meta-fail';
     }
     const vclass=r.verdict==='CONFIRMED'?'vb-confirmed':r.verdict==='DISPUTED'?'vb-disputed':'vb-no-ev';
+    const verdictLabel=r.verdict==='CONFIRMED'?'\u2713 OK':r.verdict==='DISPUTED'?'\u2717 Not OK':'\u2014 No Evidence';
     return `<tr>
       <td style="color:var(--gray)">${r.row}</td>
       <td style="font-size:11px;line-height:1.5;${/[\u0600-\u06FF]/.test(item.desc||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${escHtml(item.desc||'')}</td>
       <td>${photoChecksHtml}</td>
       <td><span style="font-size:11px;font-family:var(--mono)">${escHtml((item.result||'').replace('_',' '))}</span></td>
-      <td><span class="meta-pill ${statusClass}">${statusMatch}</span></td>
-      <td><span class="vbadge ${vclass}">${r.verdict}</span></td>
       <td>${causesHtml?`<div style="margin-bottom:4px">${causesHtml}</div>`:''}<div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(r.explanation||'')}</div></td>
+      <td><span class="vbadge ${vclass}">${verdictLabel}</span></td>
+      <td><span class="meta-pill ${statusClass}">${statusMatch}</span></td>
     </tr>`;
   }).join('');
 }
