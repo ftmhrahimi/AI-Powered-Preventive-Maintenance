@@ -1872,15 +1872,16 @@ function updateGlobalBtns() {
   const btnAdd = document.getElementById('btnAddFiles');
   if (btnClear) btnClear.style.display = hasJobs ? 'inline-block' : 'none';
   if (btnAdd) btnAdd.style.display = 'inline-block'; // always visible
-
-  // Bug 7: Disable controls during execution
-  document.getElementById('folderInput').disabled = isAnyRunning;
-  document.getElementById('fileInput').disabled = isAnyRunning;
+// Keep folder/file pickers available while jobs run so users can queue more PDFs.
+  // Clearing the queue remains blocked during execution to avoid removing active jobs.
+  document.getElementById('folderInput').disabled = false;
+  document.getElementById('fileInput').disabled = false;
   const btnSelect = document.getElementById('btnSelectFolder');
-  if (btnSelect) btnSelect.disabled = isAnyRunning;
+  if (btnSelect) btnSelect.disabled = false;
   if (btnClear) btnClear.disabled = isAnyRunning;
-  if (btnAdd) btnAdd.disabled = isAnyRunning;
+  if (btnAdd) btnAdd.disabled = false;
 }
+ 
 
 /* ── Run All ─────────────────────────────────────────────────────────── */
 async function runAll() {
@@ -2819,8 +2820,14 @@ function removeJob(idx) {
   idbDelete(`pdf_${currentUser.username}_${removedName}`).catch(() => {});
 }
 
-document.getElementById('folderInput').addEventListener('change', e => handleFiles(e.target.files));
-document.getElementById('fileInput').addEventListener('change', e => handleFiles(e.target.files));
+document.getElementById('folderInput').addEventListener('change', e => {
+  handleFiles(e.target.files);
+  e.target.value = '';
+});
+document.getElementById('fileInput').addEventListener('change', e => {
+  handleFiles(e.target.files);
+  e.target.value = '';
+});
 </script>
 
 <!-- ══ DUPLICATE CONFIRM MODAL ══ -->
