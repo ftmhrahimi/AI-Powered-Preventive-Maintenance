@@ -195,16 +195,18 @@ def get_user_reports(username):
 def get_all_reports():
     conn = get_db()
     rows = conn.execute('''
-        SELECT r.data_json, r.username 
-        FROM reports r 
+        SELECT r.data_json, r.username, u.name AS owner_name
+        FROM reports r
+        LEFT JOIN users u ON u.username = r.username
         ORDER BY r.savedAt DESC
     ''').fetchall()
     conn.close()
-    
+
     results = []
     for r in rows:
         data = json.loads(r['data_json'])
-        data['owner'] = r['username'] # Add owner field for admin view
+        data['owner'] = r['username'] # Keep username for admin actions/downloads
+        data['ownerName'] = r['owner_name'] or r['username'] # Display registered full name in admin dashboard
         results.append(data)
     return results
 
