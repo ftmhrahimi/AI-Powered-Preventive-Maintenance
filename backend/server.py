@@ -17,7 +17,8 @@ from extractor import process_pdf
 from config import LLM_SERVER_URL as CONFIG_LLM_URL, BACKEND_HOST, BACKEND_PORT
 from db import (init_db, register_user, login_user, save_report, get_user_reports,
                 get_all_reports, delete_report, is_admin_user,
-                save_user_file, get_user_files, delete_user_file, delete_all_user_files)
+                save_user_file, get_user_files, delete_user_file, delete_all_user_files,
+                delete_report_by_filename)
 # PDF storage directory
 PDF_STORAGE_DIR = os.path.join(os.path.dirname(__file__), 'storage', 'pdfs')
 os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
@@ -46,6 +47,9 @@ executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 AUDIT_DB = "logs/audit.db"
 AUDIT_LOCK = threading.Lock()
 
+STOP_ALL_FLAG = False
+STOP_ALL_LOCK = threading.Lock()
+
 def init_audit_db():
     with sqlite3.connect(AUDIT_DB) as conn:
         conn.execute("""
@@ -55,12 +59,18 @@ def init_audit_db():
                 username TEXT,
                 event_type TEXT NOT NULL,
                 detail TEXT,
+                description TEXT,
                 ip_address TEXT,
                 job_id TEXT,
                 task_id TEXT,
                 status TEXT
             )
         """)
+        # Migration guard for existing databases
+        try:
+            conn.execute("ALTER TABLE events ADD COLUMN description TEXT")
+        except Exception:
+            pass
         conn.commit()
 
 init_audit_db()
@@ -97,10 +107,12 @@ def call_llm_with_retry(payload):
         LLM_HEALTH["last_failure"] = datetime.now(timezone.utc).isoformat()
 
     logger.error(f"LLM failed after {LLM_MAX_RETRIES} attempts: {last_error}")
-    log_event("LLM_FAILURE", detail=last_error, status="failed")
+    log_event("LLM_FAILURE", detail=last_error,
+              description=f"LLM server failed after {LLM_MAX_RETRIES} attempts: {last_error}",
+              status="failed")
     raise RuntimeError(f"LLM unavailable after {LLM_MAX_RETRIES} attempts: {last_error}")
 
-def log_event(event_type, detail=None, username=None,
+def log_event(event_type, detail=None, description=None, username=None,
               ip_address=None, job_id=None, task_id=None, status=None):
     ts = datetime.now(timezone.utc).isoformat()
     logger.info(
@@ -110,23 +122,33 @@ def log_event(event_type, detail=None, username=None,
     with AUDIT_LOCK:
         with sqlite3.connect(AUDIT_DB) as conn:
             conn.execute(
-                "INSERT INTO events (timestamp, username, event_type, detail, "
-                "ip_address, job_id, task_id, status) VALUES (?,?,?,?,?,?,?,?)",
-                (ts, username, event_type, detail, ip_address, job_id, task_id, status)
+                "INSERT INTO events (timestamp, username, event_type, detail, description, "
+                "ip_address, job_id, task_id, status) VALUES (?,?,?,?,?,?,?,?,?)",
+                (ts, username, event_type, detail, description, ip_address, job_id, task_id, status)
             )
             conn.commit()
 
 def run_job(job_id, tmp_path):
+    global STOP_ALL_FLAG
     with JOB_REGISTRY_LOCK:
         job_meta = dict(JOB_REGISTRY.get(job_id, {}))
     username = job_meta.get("username")
+    filename = job_meta.get("filename", "")
+
+    with STOP_ALL_LOCK:
+        if STOP_ALL_FLAG:
+            with JOB_REGISTRY_LOCK:
+                JOB_REGISTRY[job_id]["status"] = "stopped"
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            return
 
     with JOB_REGISTRY_LOCK:
         JOB_REGISTRY[job_id]["status"] = "running"
 
-
     log_event("JOB_STARTED", username=username, job_id=job_id,
-              detail=JOB_REGISTRY[job_id]["filename"], status="running")
+              detail=filename, description=f"Extraction job started for: {filename}",
+              status="running")
     try:
         result = process_pdf(tmp_path)
         with JOB_REGISTRY_LOCK:
@@ -134,13 +156,15 @@ def run_job(job_id, tmp_path):
             JOB_REGISTRY[job_id]["result"] = result
             JOB_REGISTRY[job_id]["progress_pct"] = 100
         log_event("JOB_COMPLETED", username=username, job_id=job_id,
-                  task_id=result, status="success")
+                  task_id=result, description=f"Extraction completed. Task ID: {result}",
+                  status="success")
     except Exception as e:
         with JOB_REGISTRY_LOCK:
             JOB_REGISTRY[job_id]["status"] = "failed"
             JOB_REGISTRY[job_id]["error"] = str(e)
         log_event("JOB_FAILED", username=username, job_id=job_id,
-                  detail=str(e), status="failed")
+                  detail=str(e), description=f"Extraction failed for {filename}: {str(e)}",
+                  status="failed")
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -263,7 +287,8 @@ def proxy_llm():
             job_id=job_id,
             task_id=task_id,
             status="success" if resp.status_code < 400 else "failed",
-            detail=f"model={model}; upstream_status={resp.status_code}"
+            detail=f"model={model}; upstream_status={resp.status_code}",
+            description="LLM called for: proxy_request"
         )
 
         # Stream the response back chunk by chunk
@@ -286,7 +311,8 @@ def proxy_llm():
             job_id=job_id,
             task_id=task_id,
             status="failed",
-            detail=f"model={model}; error={str(e)}"
+            detail=f"model={model}; error={str(e)}",
+            description="LLM called for: proxy_request"
         )
         return jsonify({"error": str(e)}), 500
 
@@ -325,6 +351,7 @@ def extract():
 
             executor.submit(run_job, job_id, tmp.name)
             log_event("PDF_SUBMITTED", username=username, detail=pdf.filename,
+                      description=f"User uploaded file: {pdf.filename}",
                       ip_address=request.remote_addr, job_id=job_id, status="pending")
 
             return jsonify({"success": True, "job_id": job_id})
@@ -532,10 +559,73 @@ def delete_pdf():
             os.remove(file_path)
             logger.info(f"PDF deleted: {username}/{safe_name}")
 
+        log_event("FILE_DELETED", username=username,
+                  description=f"File and report deleted by user: {safe_name}",
+                  ip_address=request.remote_addr, status="info")
         return jsonify({'success': True})
 
     except Exception as e:
         logger.error(f"PDF delete error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/stop-all', methods=['POST', 'OPTIONS'])
+def stop_all_endpoint():
+    if request.method == 'OPTIONS':
+        return '', 204
+    global STOP_ALL_FLAG
+    with STOP_ALL_LOCK:
+        STOP_ALL_FLAG = True
+
+    with JOB_REGISTRY_LOCK:
+        for job_id, job in JOB_REGISTRY.items():
+            if job['status'] in ('running', 'pending'):
+                job['status'] = 'stopped'
+
+    def reset_stop_flag():
+        import time as _time
+        _time.sleep(10)
+        global STOP_ALL_FLAG
+        with STOP_ALL_LOCK:
+            STOP_ALL_FLAG = False
+    threading.Thread(target=reset_stop_flag, daemon=True).start()
+
+    log_event("STOP_ALL", description="All running jobs stopped by user",
+              ip_address=request.remote_addr, status="info")
+    return jsonify({"status": "stopped"})
+
+
+@app.route('/api/files/replace', methods=['POST', 'OPTIONS'])
+@limiter.limit("30 per minute")
+def replace_file():
+    if request.method == 'OPTIONS':
+        return '', 204
+    try:
+        data = request.get_json() or {}
+        username = data.get('username')
+        filename = data.get('filename')
+
+        if not username or not filename:
+            return jsonify({'success': False, 'error': 'Missing params'}), 400
+
+        safe_name = os.path.basename(filename)
+
+        # Delete physical PDF file
+        file_path = os.path.join(PDF_STORAGE_DIR, username, safe_name)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        # Delete user_files record and any associated report
+        delete_user_file(username, safe_name)
+        delete_report_by_filename(username, safe_name)
+
+        log_event("FILE_REPLACED", username=username,
+                  description=f"File replaced by user (duplicate upload): {filename}",
+                  ip_address=request.remote_addr, status="info")
+
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Replace file error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
