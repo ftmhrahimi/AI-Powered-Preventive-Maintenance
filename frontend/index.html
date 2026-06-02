@@ -177,7 +177,7 @@
     .stat-lbl{font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;font-family:var(--mono);}
     .table-wrap{background:var(--white);border:0.5px solid var(--border);border-radius:12px;overflow:hidden;}
      .admin-table-wrap{overflow-x:auto;}
-    .admin-reports-table{min-width:1180px;}
+    .admin-reports-table{min-width:1320px;}
     .admin-actions{display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;}
     .admin-actions .btn-view{padding:6px 10px;font-size:11px;line-height:1.2;}
     .admin-actions .btn-delete{padding:6px 8px;line-height:1.2;flex:0 0 auto;}     
@@ -649,6 +649,7 @@
               <tr>
                 <th style="width:100px;cursor:pointer" onclick="adminDbSort('owner')">Owner <span id="admin-sort-owner"></span></th>
                 <th style="width:150px;cursor:pointer" onclick="adminDbSort('taskId')">Task ID <span id="admin-sort-taskId"></span></th>
+                <th style="width:170px;cursor:pointer" onclick="adminDbSort('fileName')">File Name <span id="admin-sort-fileName"></span></th>
                 <th style="width:90px;cursor:pointer" onclick="adminDbSort('siteId')">Site ID <span id="admin-sort-siteId"></span></th>
                 <th style="width:140px;cursor:pointer" onclick="adminDbSort('taskCategory')">Category <span id="admin-sort-taskCategory"></span></th>
                 <th style="width:160px;cursor:pointer" onclick="adminDbSort('taskSubcategory')">Subcategory <span id="admin-sort-taskSubcategory"></span></th>
@@ -1074,17 +1075,19 @@ async function startApp(user) {
   document.getElementById('userLabel').textContent = name;
 
   if (isAdmin) {
+    document.getElementById('tabValidator').style.display = 'none';
     document.getElementById('tabHistory').style.display = 'none';
     document.getElementById('tabAdmin').style.display = '';
     document.getElementById('tabAudit').style.display = '';
   } else {
+    document.getElementById('tabValidator').style.display = '';
     document.getElementById('tabHistory').style.display = '';
     document.getElementById('tabAdmin').style.display = 'none';
     document.getElementById('tabAudit').style.display = 'none';
   }
 
-  switchTab('validator');
-  await renderHistory();
+  switchTab(isAdmin ? 'admin' : 'validator');
+  if (!isAdmin) await renderHistory();
 
   // // Bug 4: Restore folder selection from session storage
   // const lastLabel = sessionStorage.getItem('lastFolderLabel');
@@ -1206,6 +1209,7 @@ function doSignOut() {
   jobs = [];
   document.getElementById('folderInput').value = '';
   document.getElementById('fileInput').value = '';
+  document.getElementById('tabValidator').style.display = '';
   document.getElementById('tabHistory').style.display = '';
   document.getElementById('tabAdmin').style.display = 'none';
   document.getElementById('tabAudit').style.display = 'none';
@@ -1276,6 +1280,7 @@ async function checkLlmHealth() {
 function switchTab(tab) {
   const adminSubtab = tab === 'audit' && currentUser?.isAdmin ? 'audit' : 'dashboard';
   if (tab === 'audit' && currentUser?.isAdmin) tab = 'admin';
+  if (currentUser?.isAdmin && (tab === 'validator' || tab === 'history')) tab = 'admin';
   if (tab === 'audit' || (tab === 'admin' && (!currentUser || !currentUser.isAdmin))) tab = 'validator';
   document.getElementById('panelValidator').style.display = tab === 'validator' ? '' : 'none';
   document.getElementById('panelHistory').style.display   = tab === 'history' ? '' : 'none';
@@ -1365,7 +1370,7 @@ async function renderAdmin() {
   } catch (err) {
     console.error('Admin fetch failed:', err);
     const tbody = document.getElementById('adminTableBody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--red);">Unable to load admin reports.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="padding:40px;text-align:center;color:var(--red);">Unable to load admin reports.</td></tr>';
   }
 }
 
@@ -1433,7 +1438,7 @@ function applyAdminDashboardFilters() {
     let va = a[adminSortKey] ?? '', vb = b[adminSortKey] ?? '';
     if (va < vb) return -adminSortDir; if (va > vb) return adminSortDir; return 0;
   });
-  ['owner','taskId','siteId','taskCategory','taskSubcategory','reportDate','fmeName','confirmation'].forEach(k => {
+  ['owner','taskId','fileName','siteId','taskCategory','taskSubcategory','reportDate','fmeName','confirmation'].forEach(k => {
     const el = document.getElementById('admin-sort-'+k);
     if (el) el.textContent = k === adminSortKey ? (adminSortDir===1?' ↑':' ↓') : '';
   });
@@ -1442,7 +1447,7 @@ function applyAdminDashboardFilters() {
   document.getElementById('adminFilteredCount').textContent = adminFilteredReports.length < total ? `Showing ${adminFilteredReports.length} of ${total}` : '';
   const tbody = document.getElementById('adminTableBody');
   if (!adminFilteredReports.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--gray);font-size:13px;">No reports found across all users.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="padding:40px;text-align:center;color:var(--gray);font-size:13px;">No reports found across all users.</td></tr>';
     return;
   }
   tbody.innerHTML = adminFilteredReports.map((r, idx) => {
@@ -1454,6 +1459,7 @@ function applyAdminDashboardFilters() {
     return `<tr style="cursor:pointer" onclick="openAdminReport(${idx})">
       <td style="font-weight:600;color:var(--gold-dark)">${escHtml(r.owner||'—')}</td>
       <td style="font-family:var(--mono);font-size:11px;font-weight:600">${escHtml(r.taskId||'—')}</td>
+      <td style="font-family:var(--mono);font-size:11px" onclick="event.stopPropagation()">${r.fileName ? `<button class="btn-view ready" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(r.fileName)}" onclick="openAdminPdfForReport(${idx})">${escHtml(r.fileName)}</button>` : '—'}</td>
       <td style="font-family:var(--mono);font-size:11px">${escHtml(r.siteId||'—')}</td>
       <td style="font-size:11px">${escHtml(r.taskCategory||'—')}</td>
       <td style="font-size:11px">${escHtml(r.taskSubcategory||'—')}</td>
@@ -1488,6 +1494,13 @@ function resetAdminDashboardFilters() {
     if (el) el.value = '';
   });
   applyAdminDashboardFilters();
+}
+function openAdminPdfForReport(idx) {
+  const r = adminFilteredReports[idx];
+  if (!r?.owner || !r?.fileName) return;
+  const url = window.APP_CONFIG.BACKEND_URL +
+    `/api/pdfs/download?username=${encodeURIComponent(r.owner)}&filename=${encodeURIComponent(r.fileName)}`;
+  window.open(url, '_blank', 'noopener');
 }
 
 function openAdminReport(idx) {
@@ -1872,7 +1885,7 @@ function updateGlobalBtns() {
   const btnAdd = document.getElementById('btnAddFiles');
   if (btnClear) btnClear.style.display = hasJobs ? 'inline-block' : 'none';
   if (btnAdd) btnAdd.style.display = 'inline-block'; // always visible
-// Keep folder/file pickers available while jobs run so users can queue more PDFs.
+  // Keep folder/file pickers available while jobs run so users can queue more PDFs.
   // Clearing the queue remains blocked during execution to avoid removing active jobs.
   document.getElementById('folderInput').disabled = false;
   document.getElementById('fileInput').disabled = false;
@@ -1881,7 +1894,6 @@ function updateGlobalBtns() {
   if (btnClear) btnClear.disabled = isAnyRunning;
   if (btnAdd) btnAdd.disabled = false;
 }
- 
 
 /* ── Run All ─────────────────────────────────────────────────────────── */
 async function runAll() {
@@ -2819,7 +2831,6 @@ function removeJob(idx) {
   deleteUserFile(currentUser.username, removedName).catch(() => {});
   idbDelete(`pdf_${currentUser.username}_${removedName}`).catch(() => {});
 }
-
 document.getElementById('folderInput').addEventListener('change', e => {
   handleFiles(e.target.files);
   e.target.value = '';
@@ -2828,6 +2839,7 @@ document.getElementById('fileInput').addEventListener('change', e => {
   handleFiles(e.target.files);
   e.target.value = '';
 });
+
 </script>
 
 <!-- ══ DUPLICATE CONFIRM MODAL ══ -->
