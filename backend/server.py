@@ -15,7 +15,9 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from extractor import process_pdf
 from config import LLM_SERVER_URL as CONFIG_LLM_URL, BACKEND_HOST, BACKEND_PORT
-from db import init_db, register_user, login_user, save_report, get_user_reports, get_all_reports, delete_report, is_admin_user
+from db import (init_db, register_user, login_user, save_report, get_user_reports,
+                get_all_reports, delete_report, is_admin_user,
+                save_user_file, get_user_files, delete_user_file, delete_all_user_files)
 # PDF storage directory
 PDF_STORAGE_DIR = os.path.join(os.path.dirname(__file__), 'storage', 'pdfs')
 os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
@@ -535,6 +537,41 @@ def delete_pdf():
     except Exception as e:
         logger.error(f"PDF delete error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ── User Files Routes ──
+
+@app.route('/api/userfiles', methods=['GET'])
+def list_user_files():
+    username = request.args.get('username')
+    if not username:
+        return jsonify([])
+    return jsonify(get_user_files(username))
+
+
+@app.route('/api/userfiles', methods=['POST'])
+def save_user_files():
+    data = request.get_json()
+    username = data.get('username')
+    files = data.get('files', [])
+    if not username:
+        return jsonify({'success': False, 'error': 'No username'}), 400
+    for f in files:
+        save_user_file(username, f)
+    return jsonify({'success': True})
+
+
+@app.route('/api/userfiles', methods=['DELETE'])
+def remove_user_file():
+    username = request.args.get('username')
+    file_name = request.args.get('fileName')
+    if not username:
+        return jsonify({'success': False, 'error': 'No username'}), 400
+    if file_name:
+        delete_user_file(username, file_name)
+    else:
+        delete_all_user_files(username)
+    return jsonify({'success': True})
 
 
 if __name__ == "__main__":
