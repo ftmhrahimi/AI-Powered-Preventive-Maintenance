@@ -218,6 +218,16 @@ def delete_report(username, task_id):
     conn.close()
 
 
+def delete_report_by_filename(username, file_name):
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM reports WHERE username = ? AND fileName = ?",
+        (username, file_name)
+    )
+    conn.commit()
+    conn.close()
+
+
 def init_user_files_table():
     conn = get_db()
     conn.execute('''
