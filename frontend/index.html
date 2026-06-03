@@ -1773,6 +1773,7 @@ const MINIO_BASE      = window.APP_CONFIG.MINIO_BASE;
 const BASE_PHOTO_PATH = `${MINIO_BASE}/photos/`;
 const EXTRACT_API     = window.APP_CONFIG.EXTRACT_API;
 const EXTRACT_PHOTOS  = window.APP_CONFIG.EXTRACT_PHOTOS;
+const JOB_API_BASE    = window.APP_CONFIG.JOB_API_BASE;    
 
 const SITES_DATA = [
   {siteId:'225-Shahrekord-BSC',lat:32.31735333333334,lon:50.861},
@@ -2061,7 +2062,8 @@ async function processJob(idx) {
         await checkJobPause(idx);
         if (runAllStopped) return;
 
-        const pollResp = await fetch(`/job/${job_id}`);
+        // const pollResp = await fetch(`${EXTRACT_API.replace('/extract', '')}/job/${job_id}`);
+        const pollResp = await fetch(`${JOB_API_BASE}/job/${job_id}`);
         const pollData = await pollResp.json();
 
         jobStatus = pollData.status;
