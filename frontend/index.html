@@ -496,7 +496,7 @@
               <thead>
                 <tr>
                   <th>#</th><th>Item Description</th><th>Photo Checks</th>
-                  <th>PDF Status</th><th>Status Match</th><th>AI Verdict</th><th>AI Explanation</th>
+                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
                 </tr>
               </thead>
               <tbody id="modalBody"></tbody>
@@ -608,7 +608,7 @@
               <thead>
                 <tr>
                   <th>#</th><th>Item Description</th><th>Photo Checks</th>
-                  <th>PDF Status</th><th>Status Match</th><th>AI Verdict</th><th>AI Explanation</th>
+                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
                 </tr>
               </thead>
               <tbody id="histModalBody"></tbody>
@@ -725,7 +725,7 @@
               <thead>
                 <tr>
                   <th>#</th><th>Item Description</th><th>Photo Checks</th>
-                  <th>PDF Status</th><th>Status Match</th><th>AI Verdict</th><th>AI Explanation</th>
+                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
                 </tr>
               </thead>
               <tbody id="adminModalBody"></tbody>
@@ -2626,10 +2626,10 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
       <td style="color:var(--gray)">${r.row}</td>
       <td style="font-size:11px;line-height:1.5;${/[\u0600-\u06FF]/.test(item.desc||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${escHtml(item.desc||'')}</td>
       <td>${photoChecksHtml}</td>
-      <td><span style="font-size:11px;font-family:var(--mono)">${escHtml((item.result||'').replace('_',' '))}</span></td>
-      <td><span class="meta-pill ${statusClass}">${statusMatch}</span></td>
+<td><span style="font-size:11px;font-family:var(--mono)">${escHtml((item.result||'').replace('_',' '))}</span></td>
+<td>${causesHtml?`<div style="margin-bottom:4px">${causesHtml}</div>`:''}<div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(r.explanation||'')}</div></td>
       <td><span class="vbadge ${vclass}">${r.verdict}</span></td>
-      <td>${causesHtml?`<div style="margin-bottom:4px">${causesHtml}</div>`:''}<div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(r.explanation||'')}</div></td>
+      <td><span class="meta-pill ${statusClass}">${statusMatch}</span></td>
     </tr>`;
   }).join('');
 }
