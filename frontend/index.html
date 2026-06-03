@@ -2198,15 +2198,17 @@ async function extractTasksFromPdf(pdf, isEnglish=false, signal=null) {
     if (!checkboxNotOks.length){page.cleanup();continue;}
     const anchorYs = checkboxNotOks.map(it=>it.y).sort((a,b)=>b-a);
     /*const boundaries = anchorYs.map((y,i)=>({anchorY:y,top:i===0?1e5:(anchorYs[i-1]+y)/2,bottom:i===anchorYs.length-1?-1e5:(y+anchorYs[i+1])/2}));*/
-    const boundaries = isEnglish
-      ? anchorYs.map((y,i)=>({anchorY:y,top:i===0?1e5:(anchorYs[i-1]+y)/2,bottom:i===anchorYs.length-1?-1e5:(y+anchorYs[i+1])/2}))
-      : anchorYs.map((y,i)=>({anchorY:y,top:i===0?1e5:(anchorYs[i-1]+y)/4,bottom:i===anchorYs.length-1?-1e5:y-(anchorYs[i]-anchorYs[i+1])/4}));
+    const boundaries = anchorYs.map((y,i)=>({
+      anchorY: y,
+      top:    i===0                    ? 1e5  : (anchorYs[i-1] + y) / 2,
+      bottom: i===anchorYs.length-1   ? -1e5 : (y + anchorYs[i+1]) / 2
+    }));
     const strips = await getCheckboxStripImage(pdf,pageNum,anchorYs);
     const results = await Promise.all(strips.map(s => detectCheckboxFromStrip(s, signal)));
     for (let bi=0;bi<boundaries.length;bi++){
       const {top,bottom}=boundaries[bi];const result=results[bi]??'OK';
       // const box=items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+10)).filter(it=>!/(^|\b)(ok|not\s*ok)(\b|$)|☑|☐|✓|✗/i.test(it.str));
-      const box=items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+10)).filter(it=>!/^(ok|not\s*ok)$/i.test(it.str.trim())).filter(it=>!/☑|☐|✓|✗/.test(it.str));
+      const box = items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+3)).filter(it=>!/^(ok|not\s*ok)$/i.test(it.str.trim())).filter(it=>!/☑|☐|✓|✗/.test(it.str));
       box.sort((a,b)=>Math.abs(a.y-b.y)>3?(isEnglish?b.y-a.y:a.y-b.y):(isEnglish?a.x-b.x:b.x-a.x));
       const desc=box.map(it=>it.str).join(' ').replace(/\s+/g,' ').trim();
       if(desc.length>5)tasks.push({num:taskCounter++,desc,result});
