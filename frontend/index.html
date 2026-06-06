@@ -1163,16 +1163,19 @@ async function doRegister() {
 }
 
 async function startApp(user) {
-  // load dynamic data
+  // load dynamic data — sites are public, task rules are admin-only
   try {
-    const [sitesRes, rulesRes] = await Promise.all([
-      fetch(window.APP_CONFIG.BACKEND_URL + '/api/sites'),
-      fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/task-rules?admin_username=${encodeURIComponent(user.username)}`)
-    ]);
-    if (sitesRes.ok)  SITES_DATA  = await sitesRes.json();
-    if (rulesRes.ok)  TASK_RULES  = await rulesRes.json();
-  } catch(e) { console.warn('Could not load sites/rules from server, using defaults', e); }
-  // ... rest of existing startApp code unchanged
+    const sitesRes = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/sites');
+    if (sitesRes.ok) SITES_DATA = await sitesRes.json();
+  } catch(e) { console.warn('Could not load sites from server', e); }
+
+  if (user.isAdmin) {
+    try {
+      const rulesRes = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/task-rules?admin_username=${encodeURIComponent(user.username)}`);
+      if (rulesRes.ok) TASK_RULES = await rulesRes.json();
+    } catch(e) { console.warn('Could not load task rules from server', e); }
+  }
+
   document.getElementById('subnav').style.display = 'flex';
   // Clear any data from a previous session on the same machine
   jobs = [];
