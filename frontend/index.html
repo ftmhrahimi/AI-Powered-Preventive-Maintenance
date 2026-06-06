@@ -1373,25 +1373,34 @@ async function checkLlmHealth() {
    TABS
 ══════════════════════════════════════════════ */
 function switchTab(tab) {
-  const adminSubtab = tab === 'audit' && currentUser?.isAdmin ? 'audit' : 'dashboard';
-  if (tab === 'audit' && currentUser?.isAdmin) tab = 'admin';
-  if (currentUser?.isAdmin && (tab === 'validator' || tab === 'history')) tab = 'admin';
-  if (tab === 'audit' || (tab === 'admin' && (!currentUser || !currentUser.isAdmin))) tab = 'validator';
+  // Remap audit → admin with subtab
+  let adminSubtab = 'dashboard';
+  if (tab === 'audit')     { adminSubtab = 'audit';     tab = 'admin'; }
+  if (tab === 'taskRules') { adminSubtab = 'taskRules'; tab = 'admin'; }
+  if (tab === 'sites')     { adminSubtab = 'sites';     tab = 'admin'; }
+
+  // Admins never see validator or history panels
+  if (currentUser?.isAdmin && (tab === 'validator' || tab === 'history')) { tab = 'admin'; }
+
+  // Non-admins fall back to validator
+  if (tab === 'admin' && (!currentUser || !currentUser.isAdmin)) tab = 'validator';
+
   document.getElementById('panelValidator').style.display = tab === 'validator' ? '' : 'none';
-  document.getElementById('panelHistory').style.display   = tab === 'history' ? '' : 'none';
-  document.getElementById('panelAdmin').style.display     = tab === 'admin' ? '' : 'none';
+  document.getElementById('panelHistory').style.display   = tab === 'history'   ? '' : 'none';
+  document.getElementById('panelAdmin').style.display     = tab === 'admin'     ? '' : 'none';
+
   document.getElementById('tabTaskRules').style.display = currentUser?.isAdmin ? '' : 'none';
   document.getElementById('tabSites').style.display     = currentUser?.isAdmin ? '' : 'none';
-    
+
   document.getElementById('tabValidator').classList.toggle('active', tab === 'validator');
-  document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
-  document.getElementById('tabAdmin').classList.toggle('active', tab === 'admin' && adminSubtab === 'dashboard');
-  document.getElementById('tabAudit').classList.toggle('active', tab === 'admin' && adminSubtab === 'audit');
-    
+  document.getElementById('tabHistory').classList.toggle('active',   tab === 'history');
+  document.getElementById('tabAdmin').classList.toggle('active',     tab === 'admin' && adminSubtab === 'dashboard');
+  document.getElementById('tabAudit').classList.toggle('active',     tab === 'admin' && adminSubtab === 'audit');
+  document.getElementById('tabTaskRules').classList.toggle('active', tab === 'admin' && adminSubtab === 'taskRules');
+  document.getElementById('tabSites').classList.toggle('active',     tab === 'admin' && adminSubtab === 'sites');
+
   if (tab === 'history') renderHistory().catch(()=>{});
-  if (tab === 'admin') switchAdminTab(adminSubtab);
-  if (tab === 'taskRules' && currentUser?.isAdmin) { switchAdminTab('taskRules'); return; }
-  if (tab === 'sites'     && currentUser?.isAdmin) { switchAdminTab('sites');     return; }
+  if (tab === 'admin')   switchAdminTab(adminSubtab);
 }
 /* ══════════════════════════════════════════════
    SAVE / HISTORY
@@ -3021,7 +3030,6 @@ async function loadTaskRules() {
   try {
     const res = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/task-rules?admin_username=${encodeURIComponent(currentUser.username)}`);
     const rules = await res.json();
-    // Also refresh in-memory TASK_RULES for live validation
     TASK_RULES = rules;
     const rows = [];
     for (const [cat, subs] of Object.entries(rules)) {
@@ -3031,15 +3039,20 @@ async function loadTaskRules() {
         }
       }
     }
-    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--gray);">No rules yet.</td></tr>'; return; }
-    tbody.innerHTML = rows.map(({cat,sub,num,rule}) => `
+    // Store rows globally so edit button can look up by index
+    window._taskRuleRows = rows;
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--gray);">No rules yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(({cat, sub, num, rule}, idx) => `
       <tr>
         <td>${escHtml(cat)}</td>
         <td>${escHtml(sub)}</td>
         <td style="text-align:center;">${escHtml(num)}</td>
         <td style="font-size:12px;">${escHtml(rule.expected||'—')}</td>
         <td style="text-align:center;">
-          <button class="btn-view" onclick="editRuleForm(${escAttr(JSON.stringify({cat,sub,num,rule}))})">✎ Edit</button>
+          <button class="btn-view" onclick="editRuleForm(${idx})">✎ Edit</button>
           <button class="btn-delete" onclick="deleteTaskRule('${escAttr(cat)}','${escAttr(sub)}','${escAttr(num)}')">🗑</button>
         </td>
       </tr>`).join('');
@@ -3048,8 +3061,8 @@ async function loadTaskRules() {
   }
 }
 
-function editRuleForm(obj) {
-  const {cat,sub,num,rule} = typeof obj === 'string' ? JSON.parse(obj) : obj;
+function editRuleForm(idx) {
+  const {cat, sub, num, rule} = window._taskRuleRows[idx];
   document.getElementById('ruleCategory').value    = cat;
   document.getElementById('ruleSubcategory').value = sub;
   document.getElementById('ruleTaskNum').value     = num;
