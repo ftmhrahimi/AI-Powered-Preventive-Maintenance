@@ -732,6 +732,20 @@
           <button class="btn-run" onclick="saveTaskRule()" style="padding:9px 24px;">💾 Save Rule</button>
           <button class="btn-view" onclick="clearRuleForm()" style="margin-left:8px;">✕ Clear</button>
         </div>
+<!-- CSV Upload for Task Rules -->
+        <div style="background:var(--surface);border:0.5px dashed var(--border);border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <div style="font-size:13px;color:#444;flex:1;min-width:200px;">
+            <strong>Bulk Import via CSV</strong><br>
+            <span style="font-size:11px;color:var(--gray);">Columns: <code>taskCategory, taskSubcategory, taskNumber, expected, checkpoints, fail_if</code><br>
+            Separate multiple checkpoints/fail_if items with a pipe <code>|</code></span>
+          </div>
+          <a href="data:text/csv;charset=utf-8,%EF%BB%BF taskCategory%2CtaskSubcategory%2CtaskNumber%2Cexpected%2Ccheckpoints%2Cfail_if%0ABSC%20Maintenance%20Project%2CTower%20Maintenance%2C1%2CBattery%20should%20be%20healthy%2CNo%20corrosion%7CVoltage%20ok%2CCorrosion%20visible%7CLoose%20cables"
+             download="task_rules_template.csv"
+             class="btn-view" style="white-space:nowrap;text-decoration:none;padding:8px 14px;">⬇ Template</a>
+          <input type="file" id="rulesCSVInput" accept=".csv" style="display:none" onchange="importRulesCSV(this)">
+          <button class="btn-run" onclick="document.getElementById('rulesCSVInput').click()" style="padding:8px 18px;">📂 Upload CSV</button>
+          <div id="rulesCSVStatus" style="font-size:12px;color:var(--gray);width:100%;margin-top:4px;display:none;"></div>
+        </div>          
         <div class="table-wrap">
           <table class="jobs-table" style="table-layout:fixed;">
             <thead><tr>
@@ -761,6 +775,19 @@
             <div><button class="btn-run" onclick="saveSite()" style="padding:9px 24px;">💾 Save</button></div>
           </div>
         </div>
+<!-- CSV Upload for Sites -->
+        <div style="background:var(--surface);border:0.5px dashed var(--border);border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <div style="font-size:13px;color:#444;flex:1;min-width:200px;">
+            <strong>Bulk Import via CSV</strong><br>
+            <span style="font-size:11px;color:var(--gray);">Columns: <code>siteId, lat, lon</code></span>
+          </div>
+          <a href="data:text/csv;charset=utf-8,%EF%BB%BFsiteId,lat,lon%0AE1048,29.596460,52.508816"
+             download="sites_template.csv"
+             class="btn-view" style="white-space:nowrap;text-decoration:none;padding:8px 14px;">⬇ Template</a>
+          <input type="file" id="sitesCSVInput" accept=".csv" style="display:none" onchange="importSitesCSV(this)">
+          <button class="btn-run" onclick="document.getElementById('sitesCSVInput').click()" style="padding:8px 18px;">📂 Upload CSV</button>
+          <div id="sitesCSVStatus" style="font-size:12px;color:var(--gray);width:100%;margin-top:4px;display:none;"></div>
+        </div>          
         <div class="table-wrap">
           <table class="jobs-table" style="table-layout:fixed;">
             <thead><tr>
@@ -2805,9 +2832,9 @@ function escHtml(str){
 function escAttr(str){
   return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n]/g, ' ');
 }
-async function loadTaskRules(){
-  try{TASK_RULES=await(await fetch('task_rules.json')).json();}catch{TASK_RULES={};}
-}
+// async function loadTaskRules(){
+//   try{TASK_RULES=await(await fetch('task_rules.json')).json();}catch{TASK_RULES={};}
+// }
 
 /* ══ LIGHTBOX ══ */
 let lbImages = [];
@@ -3039,7 +3066,6 @@ async function loadTaskRules() {
         }
       }
     }
-    // Store rows globally so edit button can look up by index
     window._taskRuleRows = rows;
     if (!rows.length) {
       tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--gray);">No rules yet.</td></tr>';
@@ -3156,6 +3182,169 @@ async function deleteSite(siteId) {
   await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/sites?admin_username=${encodeURIComponent(currentUser.username)}&siteId=${encodeURIComponent(siteId)}`, { method: 'DELETE' });
   showToast('🗑 Site deleted');
   loadSites();
+}
+/* ══════════════════════════════════════════════
+   CSV IMPORT — TASK RULES
+══════════════════════════════════════════════ */
+async function importRulesCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById('rulesCSVStatus');
+  status.style.display = '';
+  status.style.color = 'var(--gray)';
+  status.textContent = 'Parsing CSV…';
+
+    const text = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsText(file, 'UTF-8');
+    });
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) { status.style.color='var(--red)'; status.textContent = '✗ CSV is empty or has no data rows.'; return; }
+
+  // Parse header to find column positions (case-insensitive)
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+  const col = h => headers.indexOf(h);
+  const iCat  = col('taskcategory'),  iSub = col('tasksubcategory'),
+        iNum  = col('tasknumber'),    iExp = col('expected'),
+        iChk  = col('checkpoints'),   iFail = col('fail_if');
+
+  if ([iCat, iSub, iNum].some(i => i === -1)) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ Missing required columns: taskCategory, taskSubcategory, taskNumber';
+    input.value = '';
+    return;
+  }
+
+  const rows = [];
+  const errors = [];
+  for (let i = 1; i < lines.length; i++) {
+    // Handle quoted fields with commas inside
+    const cols = parseCSVLine(lines[i]);
+    const cat = cols[iCat]?.trim();
+    const sub = cols[iSub]?.trim();
+    const num = cols[iNum]?.trim();
+    if (!cat || !sub || !num) { errors.push(`Row ${i+1}: missing category, subcategory or task number`); continue; }
+    rows.push({
+      taskCategory:    cat,
+      taskSubcategory: sub,
+      taskNumber:      num,
+      expected:        iExp  !== -1 ? (cols[iExp]||'').trim()  : '',
+      checkpoints:     iChk  !== -1 ? (cols[iChk]||'').split('|').map(s=>s.trim()).filter(Boolean) : [],
+      fail_if:         iFail !== -1 ? (cols[iFail]||'').split('|').map(s=>s.trim()).filter(Boolean) : []
+    });
+  }
+
+  if (!rows.length) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ No valid rows found. ' + errors.join('; ');
+    input.value = '';
+    return;
+  }
+
+  status.textContent = `Uploading ${rows.length} rules…`;
+  let ok = 0, fail = 0;
+  for (const row of rows) {
+    try {
+      const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/task-rules', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ admin_username: currentUser.username, ...row })
+      });
+      const data = await res.json();
+      data.success ? ok++ : fail++;
+    } catch { fail++; }
+  }
+
+  input.value = '';
+  status.style.color = fail === 0 ? 'var(--green)' : 'var(--red)';
+  status.textContent = `✓ ${ok} rules imported${fail ? `, ✗ ${fail} failed` : ''}.${errors.length ? ' Skipped: ' + errors.join('; ') : ''}`;
+  loadTaskRules();
+}
+
+/* ══════════════════════════════════════════════
+   CSV IMPORT — SITES
+══════════════════════════════════════════════ */
+async function importSitesCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById('sitesCSVStatus');
+  status.style.display = '';
+  status.style.color = 'var(--gray)';
+  status.textContent = 'Parsing CSV…';
+
+    const text = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsText(file, 'UTF-8');
+    });
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) { status.style.color='var(--red)'; status.textContent = '✗ CSV is empty or has no data rows.'; return; }
+
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+  const iId  = headers.indexOf('siteid');
+  const iLat = headers.indexOf('lat');
+  const iLon = headers.indexOf('lon');
+
+  if ([iId, iLat, iLon].some(i => i === -1)) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ Missing required columns: siteId, lat, lon';
+    input.value = '';
+    return;
+  }
+
+  const rows = [];
+  const errors = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i]);
+    const siteId = cols[iId]?.trim();
+    const lat    = parseFloat(cols[iLat]);
+    const lon    = parseFloat(cols[iLon]);
+    if (!siteId || isNaN(lat) || isNaN(lon)) { errors.push(`Row ${i+1}: invalid data`); continue; }
+    rows.push({ siteId, lat, lon });
+  }
+
+  if (!rows.length) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ No valid rows found. ' + errors.join('; ');
+    input.value = '';
+    return;
+  }
+
+  status.textContent = `Uploading ${rows.length} sites…`;
+  let ok = 0, fail = 0;
+  for (const row of rows) {
+    try {
+      const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/sites', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ admin_username: currentUser.username, ...row })
+      });
+      const data = await res.json();
+      data.success ? ok++ : fail++;
+    } catch { fail++; }
+  }
+
+  input.value = '';
+  status.style.color = fail === 0 ? 'var(--green)' : 'var(--red)';
+  status.textContent = `✓ ${ok} sites imported${fail ? `, ✗ ${fail} failed` : ''}.${errors.length ? ' Skipped: ' + errors.join('; ') : ''}`;
+  loadSites();
+}
+
+/* ── CSV line parser (handles quoted fields containing commas) ── */
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQuotes = !inQuotes; }
+    else if (ch === ',' && !inQuotes) { result.push(cur); cur = ''; }
+    else { cur += ch; }
+  }
+  result.push(cur);
+  return result;
 }
 </script>
 
