@@ -15,10 +15,13 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from extractor import process_pdf
 from config import LLM_SERVER_URL as CONFIG_LLM_URL, BACKEND_HOST, BACKEND_PORT
-from db import (init_db, register_user, login_user, save_report, get_user_reports,
-                get_all_reports, delete_report, is_admin_user,
-                save_user_file, get_user_files, delete_user_file, delete_all_user_files,
-                delete_report_by_filename)
+from db import (
+    init_db, save_report, get_user_reports, get_all_reports,
+    delete_report, delete_report_by_filename, register_user, login_user, is_admin_user,
+    save_user_file, get_user_files, delete_user_file, delete_all_user_files,
+    get_all_task_rules, upsert_task_rule, delete_task_rule,   # ← add these
+    get_all_sites, upsert_site, delete_site                   # ← add these
+)
 # PDF storage directory
 PDF_STORAGE_DIR = os.path.join(os.path.dirname(__file__), 'storage', 'pdfs')
 os.makedirs(PDF_STORAGE_DIR, exist_ok=True)
@@ -145,6 +148,8 @@ def run_job(job_id, tmp_path):
 
     with JOB_REGISTRY_LOCK:
         JOB_REGISTRY[job_id]["status"] = "running"
+        JOB_REGISTRY[job_id]["progress_pct"] = 10
+        JOB_REGISTRY[job_id]["progress_label"] = "Extracting PDF..."
 
     log_event("JOB_STARTED", username=username, job_id=job_id,
               detail=filename, description=f"Extraction job started for: {filename}",
@@ -155,6 +160,7 @@ def run_job(job_id, tmp_path):
             JOB_REGISTRY[job_id]["status"] = "done"
             JOB_REGISTRY[job_id]["result"] = result
             JOB_REGISTRY[job_id]["progress_pct"] = 100
+            JOB_REGISTRY[job_id]["progress_label"] = "Done"
         log_event("JOB_COMPLETED", username=username, job_id=job_id,
                   task_id=result, description=f"Extraction completed. Task ID: {result}",
                   status="success")
@@ -162,13 +168,13 @@ def run_job(job_id, tmp_path):
         with JOB_REGISTRY_LOCK:
             JOB_REGISTRY[job_id]["status"] = "failed"
             JOB_REGISTRY[job_id]["error"] = str(e)
+            JOB_REGISTRY[job_id]["progress_label"] = "Failed"
         log_event("JOB_FAILED", username=username, job_id=job_id,
                   detail=str(e), description=f"Extraction failed for {filename}: {str(e)}",
                   status="failed")
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
-
 
 def check_llm_server_health():
     # Attempt to ping the /health endpoint of the LLM server
@@ -662,7 +668,77 @@ def remove_user_file():
     else:
         delete_all_user_files(username)
     return jsonify({'success': True})
+# ── Task Rules Routes ──
 
+@app.route('/api/admin/task-rules', methods=['GET'])
+def get_task_rules():
+    admin_username = request.args.get('admin_username')
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
+    return jsonify(get_all_task_rules())
+
+@app.route('/api/admin/task-rules', methods=['POST'])
+def save_task_rule():
+    data = request.get_json()
+    admin_username = data.get('admin_username')
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
+    ok = upsert_task_rule(
+        data.get('taskCategory', '').strip(),
+        data.get('taskSubcategory', '').strip(),
+        str(data.get('taskNumber', '')).strip(),
+        data.get('expected', '').strip(),
+        data.get('checkpoints', []),
+        data.get('fail_if', [])
+    )
+    return jsonify({"success": ok})
+
+@app.route('/api/admin/task-rules', methods=['DELETE'])
+def remove_task_rule():
+    admin_username = request.args.get('admin_username')
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
+    ok = delete_task_rule(
+        request.args.get('taskCategory'),
+        request.args.get('taskSubcategory'),
+        request.args.get('taskNumber')
+    )
+    return jsonify({"success": True})
+
+
+# ── Sites Routes ──
+
+@app.route('/api/admin/sites', methods=['GET'])
+def get_sites():
+    admin_username = request.args.get('admin_username')
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
+    return jsonify(get_all_sites())
+
+@app.route('/api/sites', methods=['GET'])   # public endpoint used by frontend during validation
+def get_sites_public():
+    return jsonify(get_all_sites())
+
+@app.route('/api/admin/sites', methods=['POST'])
+def save_site():
+    data = request.get_json()
+    admin_username = data.get('admin_username')
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
+    ok = upsert_site(
+        data.get('siteId', '').strip(),
+        data.get('lat'),
+        data.get('lon')
+    )
+    return jsonify({"success": ok})
+
+@app.route('/api/admin/sites', methods=['DELETE'])
+def remove_site():
+    admin_username = request.args.get('admin_username')
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
+    delete_site(request.args.get('siteId'))
+    return jsonify({"success": True})
 
 if __name__ == "__main__":
     app.run(host=BACKEND_HOST, port=BACKEND_PORT, debug=False)
