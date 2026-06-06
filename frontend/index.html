@@ -425,6 +425,8 @@
     <button class="subnav-tab" id="tabHistory" onclick="switchTab('history')">📊 Dashboard</button>
     <button class="subnav-tab" id="tabAdmin" onclick="switchTab('admin')" style="display:none;">📊 Dashboard</button>
     <button class="subnav-tab" id="tabAudit" onclick="switchTab('audit')" style="display:none;">📜 Audit</button>
+    <button class="subnav-tab" id="tabTaskRules" onclick="switchTab('taskRules')" style="display:none;">📋 Task Rules</button>
+    <button class="subnav-tab" id="tabSites" onclick="switchTab('sites')" style="display:none;">📍 Sites</button>
   </div>
 
   <!-- VALIDATOR TAB -->
@@ -691,6 +693,72 @@
             <button class="btn-view" onclick="loadAuditLog()">↺ Refresh</button>
           </div>
         </div>
+        <!-- TASK RULES PANEL -->
+<div id="adminTaskRulesPanel" style="display:none;">
+  <div class="history-header">
+    <h2>Task Rules Manager</h2>
+    <button class="btn-view" onclick="loadTaskRules()">↺ Refresh</button>
+  </div>
+
+  <div style="background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;">
+    <h3 style="margin:0 0 14px;font-size:14px;">Add / Update Rule</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr 80px;gap:10px;margin-bottom:10px;">
+      <div><label class="db-filter-label">Task Category</label><input class="db-filter-input" id="ruleCategory" placeholder="e.g. BSC Maintenance Project" style="width:100%"/></div>
+      <div><label class="db-filter-label">Task Subcategory</label><input class="db-filter-input" id="ruleSubcategory" placeholder="e.g. Tower Maintenance" style="width:100%"/></div>
+      <div><label class="db-filter-label">Task #</label><input class="db-filter-input" id="ruleTaskNum" placeholder="1" type="number" style="width:100%"/></div>
+    </div>
+    <div style="margin-bottom:10px;"><label class="db-filter-label">Expected Condition</label><input class="db-filter-input" id="ruleExpected" placeholder="Describe what a passing condition looks like" style="width:100%"/></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      <div><label class="db-filter-label">Checkpoints (one per line)</label><textarea class="db-filter-input" id="ruleCheckpoints" rows="3" placeholder="No corrosion on terminals&#10;Voltage display visible" style="width:100%;resize:vertical;font-family:var(--mono);font-size:12px;"></textarea></div>
+      <div><label class="db-filter-label">Fail If (one per line)</label><textarea class="db-filter-input" id="ruleFailIf" rows="3" placeholder="Corrosion visible&#10;Loose cables" style="width:100%;resize:vertical;font-family:var(--mono);font-size:12px;"></textarea></div>
+    </div>
+    <button class="btn-run" onclick="saveTaskRule()" style="padding:9px 24px;">💾 Save Rule</button>
+    <button class="btn-view" onclick="clearRuleForm()" style="margin-left:8px;">✕ Clear</button>
+  </div>
+
+  <div class="table-wrap">
+    <table class="jobs-table" style="table-layout:fixed;">
+      <thead><tr>
+        <th style="width:200px;">Category</th>
+        <th style="width:200px;">Subcategory</th>
+        <th style="width:60px;">Task #</th>
+        <th>Expected</th>
+        <th style="width:120px;text-align:center;">Actions</th>
+      </tr></thead>
+      <tbody id="taskRulesTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SITES PANEL -->
+<div id="adminSitesPanel" style="display:none;">
+  <div class="history-header">
+    <h2>Site GPS Registry</h2>
+    <button class="btn-view" onclick="loadSites()">↺ Refresh</button>
+  </div>
+
+  <div style="background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;">
+    <h3 style="margin:0 0 14px;font-size:14px;">Add / Update Site</h3>
+    <div style="display:grid;grid-template-columns:1fr 160px 160px auto;gap:10px;align-items:flex-end;">
+      <div><label class="db-filter-label">Site ID</label><input class="db-filter-input" id="siteIdInput" placeholder="e.g. E1048" style="width:100%"/></div>
+      <div><label class="db-filter-label">Latitude</label><input class="db-filter-input" id="siteLatInput" placeholder="35.6995" type="number" step="any" style="width:100%"/></div>
+      <div><label class="db-filter-label">Longitude</label><input class="db-filter-input" id="siteLonInput" placeholder="51.3380" type="number" step="any" style="width:100%"/></div>
+      <div><button class="btn-run" onclick="saveSite()" style="padding:9px 24px;">💾 Save</button></div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="jobs-table" style="table-layout:fixed;">
+      <thead><tr>
+        <th>Site ID</th>
+        <th style="width:180px;">Latitude</th>
+        <th style="width:180px;">Longitude</th>
+        <th style="width:120px;text-align:center;">Actions</th>
+      </tr></thead>
+      <tbody id="sitesTableBody"></tbody>
+    </table>
+  </div>
+</div>  
         <div class="table-wrap">
           <table class="jobs-table">
             <thead>
@@ -1069,6 +1137,16 @@ async function doRegister() {
 }
 
 async function startApp(user) {
+  // load dynamic data
+  try {
+    const [sitesRes, rulesRes] = await Promise.all([
+      fetch(window.APP_CONFIG.BACKEND_URL + '/api/sites'),
+      fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/task-rules?admin_username=${encodeURIComponent(user.username)}`)
+    ]);
+    if (sitesRes.ok)  SITES_DATA  = await sitesRes.json();
+    if (rulesRes.ok)  TASK_RULES  = await rulesRes.json();
+  } catch(e) { console.warn('Could not load sites/rules from server, using defaults', e); }
+  // ... rest of existing startApp code unchanged
   document.getElementById('subnav').style.display = 'flex';
   // Clear any data from a previous session on the same machine
   jobs = [];
@@ -1302,14 +1380,18 @@ function switchTab(tab) {
   document.getElementById('panelValidator').style.display = tab === 'validator' ? '' : 'none';
   document.getElementById('panelHistory').style.display   = tab === 'history' ? '' : 'none';
   document.getElementById('panelAdmin').style.display     = tab === 'admin' ? '' : 'none';
-
+  document.getElementById('tabTaskRules').style.display = currentUser?.isAdmin ? '' : 'none';
+  document.getElementById('tabSites').style.display     = currentUser?.isAdmin ? '' : 'none';
+    
   document.getElementById('tabValidator').classList.toggle('active', tab === 'validator');
   document.getElementById('tabHistory').classList.toggle('active', tab === 'history');
   document.getElementById('tabAdmin').classList.toggle('active', tab === 'admin' && adminSubtab === 'dashboard');
   document.getElementById('tabAudit').classList.toggle('active', tab === 'admin' && adminSubtab === 'audit');
-
+    
   if (tab === 'history') renderHistory().catch(()=>{});
   if (tab === 'admin') switchAdminTab(adminSubtab);
+  if (tab === 'taskRules' && currentUser?.isAdmin) { switchAdminTab('taskRules'); return; }
+  if (tab === 'sites'     && currentUser?.isAdmin) { switchAdminTab('sites');     return; }
 }
 /* ══════════════════════════════════════════════
    SAVE / HISTORY
@@ -1368,14 +1450,19 @@ let adminSortDir = -1;
 
 function switchAdminTab(tab) {
   if (!currentUser || !currentUser.isAdmin) return;
-  document.getElementById('adminDashboardPanel').style.display = tab === 'dashboard' ? '' : 'none';
-  document.getElementById('adminAuditPanel').style.display = tab === 'audit' ? '' : 'none';
-  document.getElementById('tabAdmin').classList.toggle('active', tab === 'dashboard');
-  document.getElementById('tabAudit').classList.toggle('active', tab === 'audit');
+  document.getElementById('adminDashboardPanel').style.display   = tab === 'dashboard' ? '' : 'none';
+  document.getElementById('adminAuditPanel').style.display       = tab === 'audit'     ? '' : 'none';
+  document.getElementById('adminTaskRulesPanel').style.display   = tab === 'taskRules' ? '' : 'none';
+  document.getElementById('adminSitesPanel').style.display       = tab === 'sites'     ? '' : 'none';
+  document.getElementById('tabAdmin').classList.toggle('active',     tab === 'dashboard');
+  document.getElementById('tabAudit').classList.toggle('active',     tab === 'audit');
+  document.getElementById('tabTaskRules').classList.toggle('active', tab === 'taskRules');
+  document.getElementById('tabSites').classList.toggle('active',     tab === 'sites');
   if (tab === 'dashboard') renderAdmin().catch(()=>{});
-  if (tab === 'audit') loadAuditLog().catch(()=>{});
+  if (tab === 'audit')     loadAuditLog().catch(()=>{});
+  if (tab === 'taskRules') loadTaskRules().catch(()=>{});
+  if (tab === 'sites')     loadSites().catch(()=>{});
 }
-
 async function renderAdmin() {
   if (!currentUser || !currentUser.isAdmin) return;
   try {
@@ -1775,16 +1862,16 @@ const EXTRACT_API     = window.APP_CONFIG.EXTRACT_API;
 const EXTRACT_PHOTOS  = window.APP_CONFIG.EXTRACT_PHOTOS;
 const JOB_API_BASE    = window.APP_CONFIG.JOB_API_BASE;    
 
-const SITES_DATA = [
-  {siteId:'225-Shahrekord-BSC',lat:32.31735333333334,lon:50.861},
-  {siteId:'SITE002',lat:79,lon:80},
-  {siteId:'SITE003',lat:35.6995,lon:51.3380},
-  {siteId:'E2782',lat:35.6995,lon:51.3380},
-  {siteId:'T3309',lat:35.6995,lon:51.3380},
-  {siteId:'E1048',lat:29.596460,lon:52.508816},
-  {siteId:'T8844',lat:31.290977,lon:52.48984},
-];
-
+// const SITES_DATA = [
+//   {siteId:'225-Shahrekord-BSC',lat:32.31735333333334,lon:50.861},
+//   {siteId:'SITE002',lat:79,lon:80},
+//   {siteId:'SITE003',lat:35.6995,lon:51.3380},
+//   {siteId:'E2782',lat:35.6995,lon:51.3380},
+//   {siteId:'T3309',lat:35.6995,lon:51.3380},
+//   {siteId:'E1048',lat:29.596460,lon:52.508816},
+//   {siteId:'T8844',lat:31.290977,lon:52.48984},
+// ];
+let SITES_DATA = [];   // populated from backend on startup
 let TASK_RULES = {};
 let jobs = [];
 const jobControllers = {};
@@ -2308,10 +2395,11 @@ function dedupeItems(items){
 }
 
 async function extractItemsWithBatching(tasks, isEnglish=false, signal=null){
-  const CHUNK_SIZE=5; let allItems=[];
-  for(let i=0;i<tasks.length;i+=CHUNK_SIZE){
+  const CHUNK_SIZE=5; const OVERLAP=1; let allItems=[];
+  for(let i=0;i<tasks.length;i+=CHUNK_SIZE-OVERLAP){
     if(signal && signal.aborted) throw new Error('Job aborted');
     const batch=tasks.slice(i,i+CHUNK_SIZE);
+    if(!batch.length) break;
     const text=batch.map(t=>`${t.num}. ${t.desc}\nNot OK`).join('\n');
     const results=await callLLMExtract(text, isEnglish, signal);
     if(!results.length){allItems.push(...batch.map(t=>({num:t.num,desc:t.desc,result:'NOT_OK'})));continue;}
@@ -2322,7 +2410,7 @@ async function extractItemsWithBatching(tasks, isEnglish=false, signal=null){
 async function callLLMExtract(textChunk, isEnglish=false, signal=null){
     const prompt = isEnglish
       ? `Extract numbered maintenance tasks from this English text. Each item starts with a number like "1.", "2.", etc.\nThe same description may appear 2-5 times repeated — pick it ONCE only.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete clean description for that number, NO repetition inside desc\n- result is always NOT_OK\n- One entry per number, never duplicate the same number\n- If the same sentence appears multiple times inside one item's text, include it only once\n- Ignore lines without a number prefix\n- Ignore lines containing only "battery wo falt darad" or "Not OK" or "OK"\nRAW TEXT:\n${textChunk}`  
-    : `The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nCRITICAL: Do NOT translate any tex\nTASK:\n1. If Persian: fix character shaping and joining.\n2. If English: fix any broken words.\n3. Extract each unique maintenance task description cleanly.\n4. Return ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean task description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do not duplicate sentences\n\nRAW TEXT:\n${textChunk}`;
+: `The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nCRITICAL: Do NOT translate any text.\nSTEP 1 — Fix ALL Persian text: reconnect every broken word so all letters are properly joined.\nSTEP 2 — Extract each unique numbered maintenance task description.\nSTEP 3 — Remove any duplicate sentences within a single task description.\nReturn ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean fixed description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do NOT include text from other task numbers inside a task's description.\n- Do not duplicate sentences.\n- One entry per task number only.\n\nRAW TEXT:\n${textChunk}`;
 
   try{
     const data = await llmCall({model:LLM_MODEL, messages:[{role:'user',content:prompt}], temperature:0.0}, signal);
@@ -2345,7 +2433,14 @@ async function callLLMExtract(textChunk, isEnglish=false, signal=null){
 //     const match=raw.match(/\[[\s\S]*\]/);return match?JSON.parse(match[0]):[];
 //   }catch{return[];}
 // }
-
+function normalizeForCompare(str) {
+  return str
+    .replace(/[\u200c\u200b\u200e\u200f\u00ad]/g, '')
+    .replace(/[\u064b-\u065f]/g, '')
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 async function cleanConsecutiveTasks(items) {
   if (items.length < 2) return items;
   const cleaned = items.map(it => ({...it}));
@@ -2353,7 +2448,7 @@ async function cleanConsecutiveTasks(items) {
   for (let i = 0; i < cleaned.length; i++) {
     const curr = cleaned[i];
     if (!curr.desc || curr.desc.length < 15) continue;
-    const currShort = curr.desc.replace(/\s+/g,' ').trim();
+const currShort = normalizeForCompare(curr.desc);
 
     // Check both neighbours: prev (i-1) and next (i+1)
     const neighbours = [];
@@ -2362,9 +2457,8 @@ async function cleanConsecutiveTasks(items) {
 
     let bleedNeighbour = null;
     for (const nb of neighbours) {
-      const nbShort = nb.desc.replace(/\s+/g,' ').trim();
+      const nbShort = normalizeForCompare(nb.desc);
       if (nbShort.length < 15) continue;
-      // Sample from both ends of neighbour text (bleed can appear at start OR end of curr)
       const sampleStart = nbShort.substring(0, Math.min(40, nbShort.length));
       const sampleEnd   = nbShort.substring(Math.max(0, nbShort.length - 40));
       if (currShort.includes(sampleStart) || currShort.includes(sampleEnd)) {
@@ -2493,7 +2587,7 @@ CRITICAL DATA for latitude and longitude (TRUST ONLY THIS):
 
 IMPORTANT: Date and GPS validation are already handled by the system.
 CRITICAL:DO NOT analyze dates visible inside images, timestamps, watermarks, GPS text, or coordinates.
-Only analyze: whether the image is relevant, whether the maintenance condition matches the reported status, whether the photo quality is sufficient.
+Only analyze: whether the image is relevant to the maintenance condition, whether the maintenance condition matches the reported status, whether the photo quality is sufficient.
 
 Determine:
 1. VERDICT: "CONFIRMED" | "DISPUTED" | "NO_EVIDENCE"
@@ -2918,7 +3012,138 @@ document.getElementById('fileInput').addEventListener('change', e => {
   handleFiles(e.target.files);
   e.target.value = '';
 });
+/* ══════════════════════════════════════════════
+   TASK RULES ADMIN
+══════════════════════════════════════════════ */
+async function loadTaskRules() {
+  const tbody = document.getElementById('taskRulesTableBody');
+  tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--gray);">Loading…</td></tr>';
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/task-rules?admin_username=${encodeURIComponent(currentUser.username)}`);
+    const rules = await res.json();
+    // Also refresh in-memory TASK_RULES for live validation
+    TASK_RULES = rules;
+    const rows = [];
+    for (const [cat, subs] of Object.entries(rules)) {
+      for (const [sub, tasks] of Object.entries(subs)) {
+        for (const [num, rule] of Object.entries(tasks)) {
+          rows.push({ cat, sub, num, rule });
+        }
+      }
+    }
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--gray);">No rules yet.</td></tr>'; return; }
+    tbody.innerHTML = rows.map(({cat,sub,num,rule}) => `
+      <tr>
+        <td>${escHtml(cat)}</td>
+        <td>${escHtml(sub)}</td>
+        <td style="text-align:center;">${escHtml(num)}</td>
+        <td style="font-size:12px;">${escHtml(rule.expected||'—')}</td>
+        <td style="text-align:center;">
+          <button class="btn-view" onclick="editRuleForm(${escAttr(JSON.stringify({cat,sub,num,rule}))})">✎ Edit</button>
+          <button class="btn-delete" onclick="deleteTaskRule('${escAttr(cat)}','${escAttr(sub)}','${escAttr(num)}')">🗑</button>
+        </td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--red);">Failed to load rules.</td></tr>';
+  }
+}
 
+function editRuleForm(obj) {
+  const {cat,sub,num,rule} = typeof obj === 'string' ? JSON.parse(obj) : obj;
+  document.getElementById('ruleCategory').value    = cat;
+  document.getElementById('ruleSubcategory').value = sub;
+  document.getElementById('ruleTaskNum').value     = num;
+  document.getElementById('ruleExpected').value    = rule.expected || '';
+  document.getElementById('ruleCheckpoints').value = (rule.checkpoints||[]).join('\n');
+  document.getElementById('ruleFailIf').value      = (rule.fail_if||[]).join('\n');
+}
+
+function clearRuleForm() {
+  ['ruleCategory','ruleSubcategory','ruleTaskNum','ruleExpected','ruleCheckpoints','ruleFailIf'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+}
+
+async function saveTaskRule() {
+  const cat    = document.getElementById('ruleCategory').value.trim();
+  const sub    = document.getElementById('ruleSubcategory').value.trim();
+  const num    = document.getElementById('ruleTaskNum').value.trim();
+  const exp    = document.getElementById('ruleExpected').value.trim();
+  const checks = document.getElementById('ruleCheckpoints').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const fails  = document.getElementById('ruleFailIf').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  if (!cat || !sub || !num) { showToast('⚠ Category, subcategory and task number are required'); return; }
+  const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/task-rules', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ admin_username: currentUser.username, taskCategory: cat, taskSubcategory: sub, taskNumber: num, expected: exp, checkpoints: checks, fail_if: fails })
+  });
+  const data = await res.json();
+  if (data.success) { showToast('✓ Rule saved'); clearRuleForm(); loadTaskRules(); }
+  else showToast('✗ Failed to save rule');
+}
+
+async function deleteTaskRule(cat, sub, num) {
+  if (!confirm(`Delete rule for ${cat} / ${sub} / Task ${num}?`)) return;
+  await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/task-rules?admin_username=${encodeURIComponent(currentUser.username)}&taskCategory=${encodeURIComponent(cat)}&taskSubcategory=${encodeURIComponent(sub)}&taskNumber=${encodeURIComponent(num)}`, { method: 'DELETE' });
+  showToast('🗑 Rule deleted');
+  loadTaskRules();
+}
+
+/* ══════════════════════════════════════════════
+   SITES ADMIN
+══════════════════════════════════════════════ */
+async function loadSites() {
+  const tbody = document.getElementById('sitesTableBody');
+  tbody.innerHTML = '<tr><td colspan="4" style="padding:30px;text-align:center;color:var(--gray);">Loading…</td></tr>';
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/sites?admin_username=${encodeURIComponent(currentUser.username)}`);
+    const sites = await res.json();
+    if (!sites.length) { tbody.innerHTML = '<tr><td colspan="4" style="padding:30px;text-align:center;color:var(--gray);">No sites yet.</td></tr>'; return; }
+    tbody.innerHTML = sites.map(s => `
+      <tr>
+        <td><strong>${escHtml(s.siteId)}</strong></td>
+        <td style="font-family:var(--mono)">${s.lat}</td>
+        <td style="font-family:var(--mono)">${s.lon}</td>
+        <td style="text-align:center;">
+          <button class="btn-view" onclick="editSiteForm('${escAttr(s.siteId)}',${s.lat},${s.lon})">✎ Edit</button>
+          <button class="btn-delete" onclick="deleteSite('${escAttr(s.siteId)}')">🗑</button>
+        </td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="4" style="padding:30px;text-align:center;color:var(--red);">Failed to load sites.</td></tr>';
+  }
+}
+
+function editSiteForm(siteId, lat, lon) {
+  document.getElementById('siteIdInput').value  = siteId;
+  document.getElementById('siteLatInput').value = lat;
+  document.getElementById('siteLonInput').value = lon;
+}
+
+async function saveSite() {
+  const siteId = document.getElementById('siteIdInput').value.trim();
+  const lat    = parseFloat(document.getElementById('siteLatInput').value);
+  const lon    = parseFloat(document.getElementById('siteLonInput').value);
+  if (!siteId || isNaN(lat) || isNaN(lon)) { showToast('⚠ Site ID, Lat and Lon are all required'); return; }
+  const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/sites', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ admin_username: currentUser.username, siteId, lat, lon })
+  });
+  const data = await res.json();
+  if (data.success) {
+    showToast('✓ Site saved');
+    document.getElementById('siteIdInput').value = document.getElementById('siteLatInput').value = document.getElementById('siteLonInput').value = '';
+    loadSites();
+  } else showToast('✗ Failed to save site');
+}
+
+async function deleteSite(siteId) {
+  if (!confirm(`Delete site ${siteId}?`)) return;
+  await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/sites?admin_username=${encodeURIComponent(currentUser.username)}&siteId=${encodeURIComponent(siteId)}`, { method: 'DELETE' });
+  showToast('🗑 Site deleted');
+  loadSites();
+}
 </script>
 
 <!-- ══ DUPLICATE CONFIRM MODAL ══ -->
