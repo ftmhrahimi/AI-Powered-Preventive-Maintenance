@@ -659,14 +659,13 @@
           <span style="font-size:11px;color:var(--gray);" id="adminFilteredCount"></span>
         </div>
 
-        <div class="table-wrap admin-table-wrap">
+<div class="table-wrap admin-table-wrap">
           <table class="jobs-table admin-reports-table" style="table-layout:fixed;">
             <thead>
               <tr>
                 <th style="width:100px;cursor:pointer" onclick="adminDbSort('owner')">Owner <span id="admin-sort-owner"></span></th>
                 <th style="width:150px;cursor:pointer" onclick="adminDbSort('taskId')">Task ID <span id="admin-sort-taskId"></span></th>
-        <th style="width:170px;cursor:pointer" onclick="adminDbSort('fileName')">File Name <span id="admin-sort-fileName"></span></th>
-                <!-- <th style="width:170px;cursor:pointer" onclick="adminDbSort('fileName')">File Name <span id="admin-sort-fileName"></span></th> -->
+                <th style="width:170px;cursor:pointer" onclick="adminDbSort('fileName')">File Name <span id="admin-sort-fileName"></span></th>
                 <th style="width:90px;cursor:pointer" onclick="adminDbSort('siteId')">Site ID <span id="admin-sort-siteId"></span></th>
                 <th style="width:140px;cursor:pointer" onclick="adminDbSort('taskCategory')">Category <span id="admin-sort-taskCategory"></span></th>
                 <th style="width:160px;cursor:pointer" onclick="adminDbSort('taskSubcategory')">Subcategory <span id="admin-sort-taskSubcategory"></span></th>
@@ -680,8 +679,9 @@
             <tbody id="adminTableBody"></tbody>
           </table>
         </div>
-      </div>
+      </div><!-- end adminDashboardPanel -->
 
+      <!-- AUDIT PANEL -->
       <div id="adminAuditPanel" style="display:none;">
         <div class="history-header">
           <h2>System Audit Log</h2>
@@ -693,87 +693,86 @@
             <button class="btn-view" onclick="loadAuditLog()">↺ Refresh</button>
           </div>
         </div>
-        <!-- TASK RULES PANEL -->
-<div id="adminTaskRulesPanel" style="display:none;">
-  <div class="history-header">
-    <h2>Task Rules Manager</h2>
-    <button class="btn-view" onclick="loadTaskRules()">↺ Refresh</button>
-  </div>
-
-  <div style="background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;">
-    <h3 style="margin:0 0 14px;font-size:14px;">Add / Update Rule</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr 80px;gap:10px;margin-bottom:10px;">
-      <div><label class="db-filter-label">Task Category</label><input class="db-filter-input" id="ruleCategory" placeholder="e.g. BSC Maintenance Project" style="width:100%"/></div>
-      <div><label class="db-filter-label">Task Subcategory</label><input class="db-filter-input" id="ruleSubcategory" placeholder="e.g. Tower Maintenance" style="width:100%"/></div>
-      <div><label class="db-filter-label">Task #</label><input class="db-filter-input" id="ruleTaskNum" placeholder="1" type="number" style="width:100%"/></div>
-    </div>
-    <div style="margin-bottom:10px;"><label class="db-filter-label">Expected Condition</label><input class="db-filter-input" id="ruleExpected" placeholder="Describe what a passing condition looks like" style="width:100%"/></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-      <div><label class="db-filter-label">Checkpoints (one per line)</label><textarea class="db-filter-input" id="ruleCheckpoints" rows="3" placeholder="No corrosion on terminals&#10;Voltage display visible" style="width:100%;resize:vertical;font-family:var(--mono);font-size:12px;"></textarea></div>
-      <div><label class="db-filter-label">Fail If (one per line)</label><textarea class="db-filter-input" id="ruleFailIf" rows="3" placeholder="Corrosion visible&#10;Loose cables" style="width:100%;resize:vertical;font-family:var(--mono);font-size:12px;"></textarea></div>
-    </div>
-    <button class="btn-run" onclick="saveTaskRule()" style="padding:9px 24px;">💾 Save Rule</button>
-    <button class="btn-view" onclick="clearRuleForm()" style="margin-left:8px;">✕ Clear</button>
-  </div>
-
-  <div class="table-wrap">
-    <table class="jobs-table" style="table-layout:fixed;">
-      <thead><tr>
-        <th style="width:200px;">Category</th>
-        <th style="width:200px;">Subcategory</th>
-        <th style="width:60px;">Task #</th>
-        <th>Expected</th>
-        <th style="width:120px;text-align:center;">Actions</th>
-      </tr></thead>
-      <tbody id="taskRulesTableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- SITES PANEL -->
-<div id="adminSitesPanel" style="display:none;">
-  <div class="history-header">
-    <h2>Site GPS Registry</h2>
-    <button class="btn-view" onclick="loadSites()">↺ Refresh</button>
-  </div>
-
-  <div style="background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;">
-    <h3 style="margin:0 0 14px;font-size:14px;">Add / Update Site</h3>
-    <div style="display:grid;grid-template-columns:1fr 160px 160px auto;gap:10px;align-items:flex-end;">
-      <div><label class="db-filter-label">Site ID</label><input class="db-filter-input" id="siteIdInput" placeholder="e.g. E1048" style="width:100%"/></div>
-      <div><label class="db-filter-label">Latitude</label><input class="db-filter-input" id="siteLatInput" placeholder="35.6995" type="number" step="any" style="width:100%"/></div>
-      <div><label class="db-filter-label">Longitude</label><input class="db-filter-input" id="siteLonInput" placeholder="51.3380" type="number" step="any" style="width:100%"/></div>
-      <div><button class="btn-run" onclick="saveSite()" style="padding:9px 24px;">💾 Save</button></div>
-    </div>
-  </div>
-
-  <div class="table-wrap">
-    <table class="jobs-table" style="table-layout:fixed;">
-      <thead><tr>
-        <th>Site ID</th>
-        <th style="width:180px;">Latitude</th>
-        <th style="width:180px;">Longitude</th>
-        <th style="width:120px;text-align:center;">Actions</th>
-      </tr></thead>
-      <tbody id="sitesTableBody"></tbody>
-    </table>
-  </div>
-</div>  
         <div class="table-wrap">
           <table class="jobs-table">
             <thead>
               <tr>
                 <th style="width:160px;">Time (UTC)</th>
-                <th style="width:180px;">Event Type</th>
+                <th style="width:160px;">Event Type</th>
                 <th>Description</th>
-                <th style="width:160px;">User / IP</th>
+                <th style="width:180px;">User / IP</th>
               </tr>
             </thead>
             <tbody id="auditTableBody"></tbody>
           </table>
         </div>
-      </div>
-    </div>
+      </div><!-- end adminAuditPanel -->
+
+      <!-- TASK RULES PANEL -->
+      <div id="adminTaskRulesPanel" style="display:none;">
+        <div class="history-header">
+          <h2>Task Rules Manager</h2>
+          <button class="btn-view" onclick="loadTaskRules()">↺ Refresh</button>
+        </div>
+        <div style="background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;">
+          <h3 style="margin:0 0 14px;font-size:14px;">Add / Update Rule</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr 80px;gap:10px;margin-bottom:10px;">
+            <div><label class="db-filter-label">Task Category</label><input class="db-filter-input" id="ruleCategory" placeholder="e.g. BSC Maintenance Project" style="width:100%"/></div>
+            <div><label class="db-filter-label">Task Subcategory</label><input class="db-filter-input" id="ruleSubcategory" placeholder="e.g. Tower Maintenance" style="width:100%"/></div>
+            <div><label class="db-filter-label">Task #</label><input class="db-filter-input" id="ruleTaskNum" placeholder="1" type="number" style="width:100%"/></div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label class="db-filter-label">Expected Condition</label>
+            <input class="db-filter-input" id="ruleExpected" placeholder="Describe what a passing condition looks like" style="width:100%"/>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+            <div><label class="db-filter-label">Checkpoints (one per line)</label><textarea class="db-filter-input" id="ruleCheckpoints" rows="3" placeholder="No corrosion on terminals&#10;Voltage display visible" style="width:100%;resize:vertical;font-family:var(--mono);font-size:12px;"></textarea></div>
+            <div><label class="db-filter-label">Fail If (one per line)</label><textarea class="db-filter-input" id="ruleFailIf" rows="3" placeholder="Corrosion visible&#10;Loose cables" style="width:100%;resize:vertical;font-family:var(--mono);font-size:12px;"></textarea></div>
+          </div>
+          <button class="btn-run" onclick="saveTaskRule()" style="padding:9px 24px;">💾 Save Rule</button>
+          <button class="btn-view" onclick="clearRuleForm()" style="margin-left:8px;">✕ Clear</button>
+        </div>
+        <div class="table-wrap">
+          <table class="jobs-table" style="table-layout:fixed;">
+            <thead><tr>
+              <th style="width:200px;">Category</th>
+              <th style="width:200px;">Subcategory</th>
+              <th style="width:60px;">Task #</th>
+              <th>Expected</th>
+              <th style="width:120px;text-align:center;">Actions</th>
+            </tr></thead>
+            <tbody id="taskRulesTableBody"></tbody>
+          </table>
+        </div>
+      </div><!-- end adminTaskRulesPanel -->
+
+      <!-- SITES PANEL -->
+      <div id="adminSitesPanel" style="display:none;">
+        <div class="history-header">
+          <h2>Site GPS Registry</h2>
+          <button class="btn-view" onclick="loadSites()">↺ Refresh</button>
+        </div>
+        <div style="background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;">
+          <h3 style="margin:0 0 14px;font-size:14px;">Add / Update Site</h3>
+          <div style="display:grid;grid-template-columns:1fr 160px 160px auto;gap:10px;align-items:flex-end;">
+            <div><label class="db-filter-label">Site ID</label><input class="db-filter-input" id="siteIdInput" placeholder="e.g. E1048" style="width:100%"/></div>
+            <div><label class="db-filter-label">Latitude</label><input class="db-filter-input" id="siteLatInput" placeholder="35.6995" type="number" step="any" style="width:100%"/></div>
+            <div><label class="db-filter-label">Longitude</label><input class="db-filter-input" id="siteLonInput" placeholder="51.3380" type="number" step="any" style="width:100%"/></div>
+            <div><button class="btn-run" onclick="saveSite()" style="padding:9px 24px;">💾 Save</button></div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="jobs-table" style="table-layout:fixed;">
+            <thead><tr>
+              <th>Site ID</th>
+              <th style="width:180px;">Latitude</th>
+              <th style="width:180px;">Longitude</th>
+              <th style="width:120px;text-align:center;">Actions</th>
+            </tr></thead>
+            <tbody id="sitesTableBody"></tbody>
+          </table>
+        </div>
+      </div><!-- end adminSitesPanel -->
 
     <!-- Admin Report Detail Modal -->
     <div class="modal-overlay" id="adminModalOverlay">
@@ -802,7 +801,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </div><!-- end panelAdmin -->
 
 <div class="toast" id="toast"></div>
 
@@ -1167,20 +1166,21 @@ async function startApp(user) {
   document.getElementById('userAvatar').textContent = initials;
   document.getElementById('userLabel').textContent = name;
 
-  if (isAdmin) {
+if (isAdmin) {
     document.getElementById('tabValidator').style.display = 'none';
-    document.getElementById('tabValidator').style.display = 'none';
-    document.getElementById('tabHistory').style.display = 'none';
-    document.getElementById('tabAdmin').style.display = '';
-    document.getElementById('tabAudit').style.display = '';
+    document.getElementById('tabHistory').style.display   = 'none';
+    document.getElementById('tabAdmin').style.display     = '';
+    document.getElementById('tabAudit').style.display     = '';
+    document.getElementById('tabTaskRules').style.display = '';
+    document.getElementById('tabSites').style.display     = '';
   } else {
-    document.getElementById('tabValidator').style.display = '';      
     document.getElementById('tabValidator').style.display = '';
-    document.getElementById('tabHistory').style.display = '';
-    document.getElementById('tabAdmin').style.display = 'none';
-    document.getElementById('tabAudit').style.display = 'none';
+    document.getElementById('tabHistory').style.display   = '';
+    document.getElementById('tabAdmin').style.display     = 'none';
+    document.getElementById('tabAudit').style.display     = 'none';
+    document.getElementById('tabTaskRules').style.display = 'none';
+    document.getElementById('tabSites').style.display     = 'none';
   }
-
   switchTab(isAdmin ? 'admin' : 'validator');
   if (!isAdmin) await renderHistory();
 
