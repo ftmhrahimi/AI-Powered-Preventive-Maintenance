@@ -20,6 +20,10 @@
       --font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace;
     }
     body{font-family:var(--font);background:var(--surface);min-height:100vh;}
+[lang="fa"], [dir="rtl"], td[style*="direction:rtl"] {
+  font-family: Tahoma, 'Vazir', 'B Nazanin', Arial, sans-serif;
+  line-height: 1.8;
+}
 
     /* ══ AUTH SCREEN ══ */
     #authScreen{
@@ -2311,7 +2315,10 @@ setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation, acce
     throw err;
   }
 }
-
+function fixPersian(text) {
+  if (!text || !/[\u0600-\u06FF]/.test(text)) return text;
+  return text.split(' ').join(' ');
+}
 /* PDF parsing — identical to original */
 async function extractTasksFromPdf(pdf, isEnglish=false, signal=null) {
   const tasks = []; let taskCounter = 1;
@@ -2336,7 +2343,8 @@ async function extractTasksFromPdf(pdf, isEnglish=false, signal=null) {
       // const box=items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+10)).filter(it=>!/(^|\b)(ok|not\s*ok)(\b|$)|☑|☐|✓|✗/i.test(it.str));
       const box = items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+3)).filter(it=>!/^(ok|not\s*ok)$/i.test(it.str.trim())).filter(it=>!/☑|☐|✓|✗/.test(it.str));
       box.sort((a,b)=>Math.abs(a.y-b.y)>3?(isEnglish?b.y-a.y:a.y-b.y):(isEnglish?a.x-b.x:b.x-a.x));
-      const desc=box.map(it=>it.str).join(' ').replace(/\s+/g,' ').trim();
+      const raw=box.map(it=>it.str).join(' ').replace(/\s+/g,' ').trim();
+      const desc=/[\u0600-\u06FF]/.test(raw)?fixPersian(raw):raw;
       if(desc.length>5)tasks.push({num:taskCounter++,desc,result});
     }
     page.cleanup();
@@ -2449,7 +2457,7 @@ async function extractItemsWithBatching(tasks, isEnglish=false, signal=null){
 async function callLLMExtract(textChunk, isEnglish=false, signal=null){
     const prompt = isEnglish
       ? `Extract numbered maintenance tasks from this English text. Each item starts with a number like "1.", "2.", etc.\nThe same description may appear 2-5 times repeated — pick it ONCE only.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete clean description for that number, NO repetition inside desc\n- result is always NOT_OK\n- One entry per number, never duplicate the same number\n- If the same sentence appears multiple times inside one item's text, include it only once\n- Ignore lines without a number prefix\n- Ignore lines containing only "battery wo falt darad" or "Not OK" or "OK"\nRAW TEXT:\n${textChunk}`  
-: `The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nCRITICAL: Do NOT translate any text.\nSTEP 1 — Fix ALL Persian text: reconnect every broken word so all letters are properly joined.\nSTEP 2 — Extract each unique numbered maintenance task description.\nSTEP 3 — Remove any duplicate sentences within a single task description.\nReturn ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean fixed description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do NOT include text from other task numbers inside a task's description.\n- Do not duplicate sentences.\n- One entry per task number only.\n\nRAW TEXT:\n${textChunk}`;
+: `The following text is raw Persian text extracted from a PDF. Due to PDF encoding issues, Persian words are broken into separate letters with spaces between them, and word order may be reversed.\nCRITICAL: Do NOT translate. Keep original Persian words.\nSTEP 1 — For each Persian word: remove spaces between letters and join them into one word. Example: " ﺍﻃﻤیﻨﺎﻥ" becomes "اطمینان".\nSTEP 2 — If the sentence reads backwards, reverse the word order.\nSTEP 3 — Extract each unique numbered maintenance task.\nSTEP 4 — Remove duplicate sentences.\nReturn ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"fixed persian description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do NOT mix text from different task numbers.\n- One entry per task number only.\n\nRAW TEXT:\n${textChunk}`;
 
   try{
     const data = await llmCall({model:LLM_MODEL, messages:[{role:'user',content:prompt}], temperature:0.0}, signal);
@@ -2762,7 +2770,7 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
       <td style="font-size:11px;line-height:1.5;${/[\u0600-\u06FF]/.test(item.desc||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${escHtml(item.desc||'')}</td>
       <td>${photoChecksHtml}</td>
 <td><span style="font-size:11px;font-family:var(--mono)">${escHtml((item.result||'').replace('_',' '))}</span></td>
-<td>${causesHtml?`<div style="margin-bottom:4px">${causesHtml}</div>`:''}<div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(r.explanation||'')}</div></td>
+<td style="${/[\u0600-\u06FF]/.test(r.explanation||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${causesHtml?`<div style="margin-bottom:4px">${causesHtml}</div>`:''}<div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(r.explanation||'')}</div></td>
       <td><span class="vbadge ${vclass}">${r.verdict}</span></td>
       <td><span class="meta-pill ${statusClass}">${statusMatch}</span></td>
     </tr>`;
