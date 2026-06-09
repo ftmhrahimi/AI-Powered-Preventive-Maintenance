@@ -1654,12 +1654,16 @@ function openAdminPdfForReport(idx) {
   window.open(url, '_blank', 'noopener');
 }
 
-function openAdminReport(idx) {
+async function openAdminReport(idx) {
   const r = adminFilteredReports[idx];
   if (!r) return;
-  renderModalContent(r.parsedHeader, r.parsedItems, r.results, `${r.taskId || r.fileName} — ${r.ownerName || r.owner}`,
+  const title = `${r.taskId || r.fileName} — ${r.ownerName || r.owner}`;
+  renderModalContent(r.parsedHeader, r.parsedItems, r.results, title,
     'adminModalTitle','adminModalVerdict','adminModalStats','adminModalHeaderInfo','adminModalBody');
   document.getElementById('adminModalOverlay').classList.add('open');
+  const enriched = await fetchPhotosForResults(r.results, r.parsedHeader?.taskId || r.taskId);
+  if (enriched) renderModalContent(r.parsedHeader, r.parsedItems, enriched, title,
+    'adminModalTitle','adminModalVerdict','adminModalStats','adminModalHeaderInfo','adminModalBody');    
 }
 
 function closeAdminModal() {
@@ -1871,9 +1875,13 @@ await renderHistory();
 async function openHistoryReport(idx) {
   const reports = await getUserReports(currentUser.username);
   const r = reports[idx];
+  // Open modal immediately with available data, then enrich with photos from MinIO
   renderModalContent(r.parsedHeader, r.parsedItems, r.results, r.taskId||r.fileName,
     'histModalTitle','histModalVerdict','histModalStats','histModalHeaderInfo','histModalBody');
   document.getElementById('histModalOverlay').classList.add('open');
+  const enriched = await fetchPhotosForResults(r.results, r.parsedHeader?.taskId || r.taskId);
+  if (enriched) renderModalContent(r.parsedHeader, r.parsedItems, enriched, r.taskId||r.fileName,
+    'histModalTitle','histModalVerdict','histModalStats','histModalHeaderInfo','histModalBody');
 }
 
 function closeHistModal() {
@@ -1903,6 +1911,29 @@ const LLM_MODEL       = window.APP_CONFIG.LLM_MODEL;
 const MINIO_BASE      = window.APP_CONFIG.MINIO_BASE;
 const BASE_PHOTO_PATH = `${MINIO_BASE}/photos/`;
 const EXTRACT_API     = window.APP_CONFIG.EXTRACT_API;
+
+// Fetch photos from MinIO for each result row and return enriched results array.
+// Returns null if no photos were found (so the caller can skip a second render).
+async function fetchPhotosForResults(results, taskId) {
+  if (!taskId || !Array.isArray(results)) return null;
+  const PHOTO_MAX = window.APP_CONFIG.PHOTO_MAX_INDEX;
+  const CONCURRENCY = 4;
+  const itemPhotoMap = {};
+  const rows = results.map(r => r.row).filter(Boolean);
+  for (let s = 0; s < rows.length; s += CONCURRENCY) {
+    await Promise.all(rows.slice(s, s + CONCURRENCY).map(async rowNum => {
+      const images = [];
+      for (let i = 1; i <= PHOTO_MAX; i++) {
+        const b64 = await fetchImageAsBase64(`${BASE_PHOTO_PATH}${taskId}/${rowNum}/${i}.jpg`);
+        if (!b64) break;
+        images.push({ name: `${i}.jpg`, base64: b64 });
+      }
+      if (images.length) itemPhotoMap[rowNum] = images;
+    }));
+  }
+  if (!Object.keys(itemPhotoMap).length) return null;
+  return results.map(r => ({ ...r, photos: itemPhotoMap[r.row] || r.photos || [] }));
+}
 const EXTRACT_PHOTOS  = window.APP_CONFIG.EXTRACT_PHOTOS;
 const JOB_API_BASE    = window.APP_CONFIG.JOB_API_BASE;    
 
