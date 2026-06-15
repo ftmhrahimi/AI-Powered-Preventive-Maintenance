@@ -502,7 +502,7 @@
               <thead>
                 <tr>
                   <th>#</th><th>Item Description</th><th>Photo Checks</th>
-                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
+                  <th>MS Report</th><th>AI Explanation</th><th>AI Verdict</th>
                 </tr>
               </thead>
               <tbody id="modalBody"></tbody>
@@ -614,7 +614,7 @@
               <thead>
                 <tr>
                   <th>#</th><th>Item Description</th><th>Photo Checks</th>
-                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
+                  <th>MS Report</th><th>AI Explanation</th><th>AI Verdict</th>
                 </tr>
               </thead>
               <tbody id="histModalBody"></tbody>
@@ -823,7 +823,7 @@
               <thead>
                 <tr>
                   <th>#</th><th>Item Description</th><th>Photo Checks</th>
-                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
+                  <th>MS Report</th><th>AI Explanation</th><th>AI Verdict</th>
                 </tr>
               </thead>
               <tbody id="adminModalBody"></tbody>
@@ -2788,23 +2788,19 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
       return thumbsHtml + metaHtml;
     })();
     const causesHtml=(r.causes||[]).map(c=>`<span class="cause-tag">${causeLabels[c]||c}</span>`).join('');
-    let statusMatch='—',statusClass='meta-na';
-    const pdfOk=(item.result||'').toUpperCase()==='OK';
-    const aiConfirmed=r.verdict==='CONFIRMED';
-    if(r.verdict!=='NO_EVIDENCE'){
-      const matched=(pdfOk&&aiConfirmed)||(!pdfOk&&!aiConfirmed);
-      statusMatch=matched?'✓ Correct':'✗ Incorrect';
-      statusClass=matched?'meta-ok':'meta-fail';
-    }
     const vclass=r.verdict==='CONFIRMED'?'vb-confirmed':r.verdict==='DISPUTED'?'vb-disputed':'vb-no-ev';
+    const verdictDisplay=r.verdict==='CONFIRMED'?'OK':r.verdict==='DISPUTED'?'Not OK':r.verdict;
+    const systemCauseMessages={IMAGE_DATE_MISMATCH:'Rejected: photo date does not match the report date.',IMAGE_GPS_MISMATCH:'Rejected: photo GPS location does not match the registered site location.',IMAGE_GPS_MISSING:'Rejected: photo is missing GPS data.'};
+    const systemCauses=(r.causes||[]).filter(c=>c in systemCauseMessages);
+    const rejectionNote=systemCauses.map(c=>systemCauseMessages[c]).join(' ');
+    const fullExplanation=rejectionNote?(r.explanation?r.explanation+' — '+rejectionNote:rejectionNote):(r.explanation||'');
     return `<tr>
       <td style="color:var(--gray)">${r.row}</td>
       <td style="font-size:11px;line-height:1.5;${/[\u0600-\u06FF]/.test(item.desc||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${escHtml(item.desc||'')}</td>
       <td>${photoChecksHtml}</td>
 <td><span style="font-size:11px;font-family:var(--mono)">${escHtml((item.result||'').replace('_',' '))}</span></td>
-<td style="${/[\u0600-\u06FF]/.test(r.explanation||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${causesHtml?`<div style="margin-bottom:4px">${causesHtml}</div>`:''}<div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(r.explanation||'')}</div></td>
-      <td><span class="vbadge ${vclass}">${r.verdict}</span></td>
-      <td><span class="meta-pill ${statusClass}">${statusMatch}</span></td>
+<td style="${/[\u0600-\u06FF]/.test(fullExplanation)?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${causesHtml?`<div style="margin-bottom:4px">${causesHtml}</div>`:''}<div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(fullExplanation)}</div></td>
+      <td><span class="vbadge ${vclass}">${verdictDisplay}</span></td>
     </tr>`;
   }).join('');
 }
