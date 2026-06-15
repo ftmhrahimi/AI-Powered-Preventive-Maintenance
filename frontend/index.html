@@ -2726,8 +2726,8 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
         <tr>
           <th></th>
           <th>Rate</th>
-          <th>✓ Confirmed / OK</th>
-          <th>✗ Disputed / Not OK</th>
+          <th>OK</th>
+          <th>NOT OK</th>
           <th>Total Items</th>
         </tr>
       </thead>
@@ -2749,9 +2749,18 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
       </tbody>
     </table>
     <div class="acceptance-row">
-      <div class="acceptance-label">Acceptance Rate</div>
-      <div class="acceptance-val" style="color:${accColor}">${acceptRate}%</div>
-      <div style="font-size:11px;color:var(--gray);font-family:var(--mono)">${matches} of ${evidenceItems} evaluated items — AI assessment and field report are in agreement</div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <div class="acceptance-label">AI Assessment Rate</div>
+          <div class="acceptance-val" style="color:${aiColor}">${aiRate}%</div>
+          <div style="font-size:11px;color:var(--gray);font-family:var(--mono)">Percentage of items AI independently assessed as correctly performed</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="acceptance-label">Match Rate</div>
+          <div class="acceptance-val" style="color:${accColor}">${acceptRate}%</div>
+          <div style="font-size:11px;color:var(--gray);font-family:var(--mono)">${matches} of ${evidenceItems} evaluated items — AI assessment and field report are in agreement</div>
+        </div>
+      </div>
     </div>`;
   document.getElementById(headerInfoId).innerHTML=`
     <div class="hinfo-item"><div class="hinfo-label">Task ID</div><div class="hinfo-value">${escHtml(h.taskId||'-')}</div></div>
@@ -2787,20 +2796,17 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
         </div>`).join('');
       return thumbsHtml + metaHtml;
     })();
-    const causesHtml=(r.causes||[]).map(c=>`<span class="cause-tag">${causeLabels[c]||c}</span>`).join('');
-    const vclass=r.verdict==='CONFIRMED'?'vb-confirmed':r.verdict==='DISPUTED'?'vb-disputed':'vb-no-ev';
-    const verdictDisplay=r.verdict==='CONFIRMED'?'OK':r.verdict==='DISPUTED'?'Not OK':r.verdict;
-    const systemCauseMessages={IMAGE_DATE_MISMATCH:'Rejected: photo date does not match the report date.',IMAGE_GPS_MISMATCH:'Rejected: photo GPS location does not match the registered site location.',IMAGE_GPS_MISSING:'Rejected: photo is missing GPS data.'};
-    const systemCauses=(r.causes||[]).filter(c=>c in systemCauseMessages);
-    const rejectionNote=systemCauses.map(c=>systemCauseMessages[c]).join(' ');
-    const fullExplanation=rejectionNote?(r.explanation?r.explanation+' — '+rejectionNote:rejectionNote):(r.explanation||'');
+    const verdictText=r.verdict==='CONFIRMED'?'OK':r.verdict==='DISPUTED'?'Not OK':'—';
+    const causeTagsHtml=r.verdict==='DISPUTED'&&(r.causes||[]).length
+      ?(r.causes||[]).map(c=>`<span class="cause-tag" style="display:inline-block;margin-top:3px">${causeLabels[c]||c}</span>`).join('')
+      :'';
     return `<tr>
       <td style="color:var(--gray)">${r.row}</td>
       <td style="font-size:11px;line-height:1.5;${/[\u0600-\u06FF]/.test(item.desc||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${escHtml(item.desc||'')}</td>
       <td>${photoChecksHtml}</td>
 <td><span style="font-size:11px;font-family:var(--mono)">${escHtml((item.result||'').replace('_',' '))}</span></td>
-<td style="${/[\u0600-\u06FF]/.test(fullExplanation)?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${causesHtml?`<div style="margin-bottom:4px">${causesHtml}</div>`:''}<div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(fullExplanation)}</div></td>
-      <td><span class="vbadge ${vclass}">${verdictDisplay}</span></td>
+<td style="${/[\u0600-\u06FF]/.test(r.explanation||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}"><div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(r.explanation||'')}</div></td>
+      <td style="white-space:normal"><span style="font-size:12px;font-weight:600;color:${r.verdict==='CONFIRMED'?'#1a9e55':r.verdict==='DISPUTED'?'#dc3545':'#718096'}">${verdictText}</span>${causeTagsHtml?`<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:2px">${causeTagsHtml}</div>`:''}</td>
     </tr>`;
   }).join('');
 }
