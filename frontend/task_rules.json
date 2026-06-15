@@ -1,0 +1,27 @@
+{
+  "BSC Maintenance Project": {
+    "Tower Maintenance": {
+      "1": {
+        "expected": "Battery voltage should be within normal range and no corrosion visible",
+        "checkpoints": [
+          "No corrosion on terminals",
+          "Voltage display visible",
+          "Battery physically intact"
+        ],
+        "fail_if": [
+          "Corrosion visible",
+          "Loose cables",
+          "Battery leakage"
+        ]
+      },
+      "2": {
+        "expected": "Battery connections must be tight and clean",
+        "checkpoints": [
+          "Connections tight",
+          "No rust",
+          "Cables properly connected"
+        ]
+      }
+    }
+  }
+}

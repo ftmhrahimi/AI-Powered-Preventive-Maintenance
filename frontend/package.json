@@ -1,0 +1,13 @@
+{
+  "name": "pm-portal-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production build for the PM Portal frontend (minifies index.html inline JS/CSS)",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "html-minifier-terser": "7.2.0"
+  }
+}

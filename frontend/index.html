@@ -1,0 +1,3418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Irancell — PM Batch Validator</title>
+  <script src="config.js"></script>
+  <script src="./js/pdf.min.js">
+</script>
+  <script>if(typeof pdfjsLib!=='undefined')pdfjsLib.GlobalWorkerOptions.workerSrc="./js/pdf.worker.min.js";
+</script>
+  <style>
+    /* Offline deployment: Google Fonts import removed; the font stack falls back to system fonts. */
+
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    :root{
+      --gold:#FFCC00;--gold-dark:#7a5800;--gold-mid:#FFD700;--gold-light:#FFF3B0;
+      --white:#fff;--red:#dc3545;--red-bg:#fff0f0;--green:#1a9e55;--green-bg:#f0fff4;
+      --gray:#718096;--border:#e2e8f0;--surface:#f7f8fa;
+      --font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace;
+    }
+    body{font-family:var(--font);background:var(--surface);min-height:100vh;}
+[lang="fa"], [dir="rtl"], td[style*="direction:rtl"] {
+  font-family: Tahoma, 'Vazir', 'B Nazanin', Arial, sans-serif;
+  line-height: 1.8;
+}
+
+    /* ══ AUTH SCREEN ══ */
+    #authScreen{
+      min-height:100vh;display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(135deg,#0a0a0a 0%,#1a1a2e 50%,#16213e 100%);
+      padding:20px;position:relative;overflow:hidden;
+    }
+    #authScreen::before{
+      content:'';position:absolute;inset:0;
+      background:repeating-linear-gradient(0deg,transparent,transparent 40px,rgba(255,204,0,.03) 40px,rgba(255,204,0,.03) 41px),
+                 repeating-linear-gradient(90deg,transparent,transparent 40px,rgba(255,204,0,.03) 40px,rgba(255,204,0,.03) 41px);
+    }
+    .auth-card{
+      background:rgba(255,255,255,.04);backdrop-filter:blur(20px);
+      border:0.5px solid rgba(255,204,0,.2);border-radius:20px;
+      padding:44px 40px;width:100%;max-width:420px;position:relative;z-index:1;
+    }
+    .auth-logo{text-align:center;margin-bottom:32px;}
+    .auth-logo-icon{
+      width:56px;height:56px;background:var(--gold);border-radius:14px;
+      display:inline-flex;align-items:center;justify-content:center;
+      font-size:26px;margin-bottom:14px;
+    }
+    .auth-logo h1{font-size:22px;font-weight:600;color:#fff;letter-spacing:-.02em;}
+    .auth-logo p{font-size:12px;color:rgba(255,255,255,.45);margin-top:4px;font-family:var(--mono);}
+    .auth-tabs{display:flex;background:rgba(255,255,255,.06);border-radius:10px;padding:4px;margin-bottom:28px;}
+    .auth-tab{
+      flex:1;padding:9px;text-align:center;font-size:13px;font-weight:500;
+      border-radius:7px;cursor:pointer;color:rgba(255,255,255,.5);border:none;
+      background:transparent;transition:all .2s;
+    }
+    .auth-tab.active{background:rgba(255,204,0,.15);color:var(--gold);border:0.5px solid rgba(255,204,0,.3);}
+    .auth-field{margin-bottom:16px;}
+    .auth-label{display:block;font-size:11px;font-weight:500;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;font-family:var(--mono);}
+    .auth-input{
+      width:100%;padding:11px 14px;background:rgba(255,255,255,.07);
+      border:0.5px solid rgba(255,255,255,.15);border-radius:9px;
+      font-size:14px;color:#fff;font-family:var(--font);outline:none;
+      transition:border-color .2s;
+    }
+    .auth-input:focus{border-color:rgba(255,204,0,.5);}
+    .auth-input::placeholder{color:rgba(255,255,255,.25);}
+    .auth-btn{
+      width:100%;padding:13px;background:var(--gold);border:none;border-radius:99px;
+      font-size:14px;font-weight:600;color:#1a1200;cursor:pointer;
+      transition:all .2s;margin-top:8px;font-family:var(--font);
+    }
+    .auth-btn:hover{background:var(--gold-mid);transform:translateY(-1px);}
+    .auth-btn:active{transform:translateY(0);}
+    .auth-error{
+      background:rgba(220,53,69,.15);border:0.5px solid rgba(220,53,69,.4);
+      border-radius:8px;padding:10px 14px;font-size:12px;color:#ff8899;
+      margin-bottom:16px;display:none;
+    }
+    .auth-error.show{display:block;}
+    .auth-footer{text-align:center;margin-top:20px;font-size:11px;color:rgba(255,255,255,.25);}
+
+    /* ══ APP SHELL ══ */
+    #appShell{display:none;}
+    #appShell.visible{display:block;}
+
+    /* ══ TOP NAV ══ */
+    .topnav{
+      background:#fff;border-bottom:0.5px solid var(--border);
+      display:flex;align-items:center;justify-content:space-between;
+      padding:0 24px;height:54px;position:sticky;top:0;z-index:50;
+    }
+    .topnav-logo{display:flex;align-items:center;gap:10px;}
+    .topnav-logo-icon{width:32px;height:32px;background:var(--gold);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;}
+    .topnav-logo h1{font-size:14px;font-weight:600;color:#1a1a1a;}
+    .topnav-logo p{font-size:10px;color:var(--gray);font-family:var(--mono);}
+    .topnav-right{display:flex;align-items:center;gap:10px;}
+    .user-pill{
+      display:flex;align-items:center;gap:8px;padding:6px 12px;
+      background:var(--surface);border:0.5px solid var(--border);border-radius:99px;
+      font-size:12px;font-weight:500;color:#1a1a1a;
+    }
+    .user-avatar{
+      width:24px;height:24px;border-radius:50%;background:var(--gold);
+      display:flex;align-items:center;justify-content:center;
+      font-size:10px;font-weight:700;color:#1a1200;
+    }
+    .btn-signout{
+      padding:7px 14px;background:#fff;border:0.5px solid var(--border);border-radius:8px;
+      font-size:12px;font-weight:500;color:var(--gray);cursor:pointer;
+    }
+    .btn-signout:hover{background:var(--surface);color:var(--red);}
+
+    /* ══ SUB NAV ══ */
+    .subnav{
+      background:#fff;border-bottom:0.5px solid var(--border);
+      display:flex;align-items:center;gap:2px;padding:0 24px;
+    }
+    .subnav-tab{
+      padding:10px 14px;font-size:12px;font-weight:500;color:var(--gray);
+      border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;
+      transition:all .15s;margin-bottom:-0.5px;
+    }
+    .subnav-tab.active{color:#1a1a1a;border-bottom-color:var(--gold);}
+
+    /* ══ MAIN CONTENT ══ */
+    .main-pad{padding:24px 24px;max-width:1140px;margin:0 auto;}
+    .admin-main-pad{max-width:none;width:100%;box-sizing:border-box;}
+    /* ══ HISTORY PANEL ══ */
+    .history-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+    .history-header h2{font-size:15px;font-weight:600;color:#1a1a1a;}
+    .history-empty{
+      text-align:center;padding:60px 20px;color:var(--gray);
+      background:#fff;border:0.5px solid var(--border);border-radius:12px;
+    }
+    .history-empty p{font-size:13px;margin-top:8px;}
+    .history-grid{display:grid;gap:10px;}
+    .history-card{
+      background:#fff;border:0.5px solid var(--border);border-radius:12px;
+      padding:16px 20px;display:flex;align-items:center;gap:16px;cursor:pointer;
+      transition:border-color .15s;
+    }
+    .history-card:hover{border-color:var(--gold);}
+    .hcard-icon{
+      width:40px;height:40px;background:var(--surface);border-radius:10px;
+      display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;
+    }
+    .hcard-body{flex:1;min-width:0;}
+    .hcard-title{font-size:13px;font-weight:600;color:#1a1a1a;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .hcard-meta{font-size:11px;color:var(--gray);margin-top:2px;}
+    .hcard-right{text-align:right;flex-shrink:0;}
+    .hcard-pct{font-size:18px;font-weight:600;}
+    .hcard-pct.high{color:var(--green);}
+    .hcard-pct.mid{color:#d4a017;}
+    .hcard-pct.low{color:var(--red);}
+    .hcard-lbl{font-size:10px;color:var(--gray);text-transform:uppercase;}
+    .hcard-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;margin-top:4px;}
+    .hb-valid{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
+    .hb-invalid{background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
+    .btn-delete{
+      padding:6px 10px;background:transparent;border:0.5px solid transparent;
+      border-radius:7px;font-size:11px;color:var(--gray);cursor:pointer;
+    }
+    .btn-delete:hover{border-color:var(--red);color:var(--red);background:var(--red-bg);}
+
+    /* ══ VALIDATOR (reuse from original) ══ */
+    .dir-card{background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:18px 22px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+    .dir-path{flex:1;font-size:13px;color:#1a1a1a;padding:8px 12px;background:var(--surface);border:0.5px solid var(--border);border-radius:8px;min-width:200px;word-break:break-all;font-family:var(--mono);}
+    .dir-path.empty{color:var(--gray);}
+    .btn-pick{padding:9px 18px;background:var(--gold);border:none;border-radius:8px;font-size:13px;font-weight:600;color:#333;cursor:pointer;white-space:nowrap;}
+    .btn-pick:hover{background:var(--gold-mid);}
+    .btn-run{padding:9px 18px;background:#1a9e55;border:none;border-radius:8px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;white-space:nowrap;}
+    .btn-run:disabled{background:#ccc;cursor:not-allowed;color:#888;}
+    .summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+    .stat-card{background:var(--white);border:0.5px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center;}
+    .stat-num{font-size:20px;font-weight:600;color:#1a1a1a;}
+    .stat-num.gold{color:var(--gold-dark);}
+    .stat-num.green{color:var(--green);}
+    .stat-num.red{color:var(--red);}
+    .stat-lbl{font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;font-family:var(--mono);}
+    .table-wrap{background:var(--white);border:0.5px solid var(--border);border-radius:12px;overflow:hidden;}
+     .admin-table-wrap{overflow-x:visible;}
+    .admin-reports-table{min-width:0;width:100%;}
+    .admin-reports-table th,.admin-reports-table td{padding-left:8px;padding-right:8px;}
+    .admin-actions{display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;}
+    .admin-actions .btn-view{padding:6px 10px;font-size:11px;line-height:1.2;}
+    .admin-actions .btn-delete{padding:6px 8px;line-height:1.2;flex:0 0 auto;}     
+    .jobs-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;}
+    .jobs-table th{background:var(--surface);padding:10px 14px;text-align:left;font-weight:500;color:var(--gray);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border);}
+    .jobs-table td{padding:11px 14px;border-bottom:0.5px solid var(--border);vertical-align:middle;color:#2d3748;}
+    .jobs-table tr:last-child td{border-bottom:none;}
+    th.col-id,td.col-id{width:160px;}
+    th.col-task,td.col-task{width:220px;}
+    th.col-bar,td.col-bar{width:auto;}
+    th.col-pct,td.col-pct{width:100px;text-align:center;}
+    th.col-act,td.col-act{width:120px;text-align:center;}
+    th.col-ctl,td.col-ctl{width:90px;text-align:center;}
+    th.col-ctl,td.col-ctl{width:90px;text-align:center;}
+    .btn-job-run{padding:5px 10px;background:#e8f5ee;border:0.5px solid #b8e6cc;border-radius:6px;font-size:11px;font-weight:600;color:#1a7a45;cursor:pointer;white-space:nowrap;}
+    .btn-job-run:hover{background:#d0eddc;}
+    .btn-job-run:disabled{background:#f0f0f0;border-color:#ddd;color:#aaa;cursor:not-allowed;}
+.btn-job-delete{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:26px;height:26px;margin-left:4px;
+  background:transparent;border:0.5px solid var(--border);
+  border-radius:6px;font-size:13px;cursor:pointer;
+  color:var(--gray);transition:all .15s;vertical-align:middle;flex-shrink:0;
+}
+.btn-job-delete:hover{background:var(--red-bg);border-color:#f5b8b8;color:var(--red);}
+.col-ctl-wrap{display:flex;align-items:center;gap:4px;justify-content:center;}
+    .bar-wrap{display:flex;align-items:center;gap:8px;}
+    .bar-track{flex:1;height:7px;background:#eee;border-radius:99px;overflow:hidden;}
+    .bar-fill{height:100%;border-radius:99px;background:var(--gold);transition:width .35s ease;}
+    .bar-fill.done{background:var(--green);}
+    .bar-fill.error{background:var(--red);}
+    .bar-fill.stopped{background:#6c757d;}
+    .bar-label{font-size:11px;color:var(--gray);white-space:nowrap;min-width:120px;font-family:var(--mono);}
+    .pct-cell{font-size:15px;font-weight:600;}
+    .pct-cell.high{color:var(--green);}
+    .pct-cell.mid{color:#d4a017;}
+    .pct-cell.low{color:var(--red);}
+    .pct-cell.na{color:var(--gray);}
+    .btn-view{padding:7px 14px;background:var(--white);border:0.5px solid var(--border);border-radius:7px;font-size:12px;font-weight:500;color:#333;cursor:pointer;}
+    .btn-view:hover{background:var(--surface);}
+    .btn-view.ready{background:#f0fff4;border-color:#b8e6cc;color:#1a7a45;font-weight:600;}
+    .header-info-box{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:18px;padding:14px;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;}
+    .hinfo-item{display:flex;flex-direction:column;}
+    .hinfo-label{font-size:10px;color:var(--gray);text-transform:uppercase;margin-bottom:3px;letter-spacing:.04em;font-family:var(--mono);}
+    .hinfo-value{font-size:13px;color:#1a1a1a;font-weight:500;word-break:break-word;font-family:var(--mono);}
+    .empty-state{text-align:center;padding:60px 20px;color:var(--gray);}
+    .empty-state p{font-size:14px;margin-top:8px;}
+
+    /* ══ MODAL ══ */
+    .page-wrap{position:relative;}
+    .modal-overlay{display:none;position:absolute;top:0;left:0;right:0;min-height:100%;background:rgba(0,0,0,.45);z-index:100;padding:28px 16px;}
+    .modal-overlay.open{display:flex;align-items:flex-start;justify-content:center;}
+    .modal-box{background:var(--white);border-radius:14px;border:0.5px solid var(--border);width:100%;max-width:980px;overflow:hidden;}
+    .modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:0.5px solid var(--border);}
+    .modal-header h2{font-size:15px;font-weight:600;color:#1a1a1a;font-family:var(--mono);}
+    .modal-close{padding:6px 12px;background:var(--surface);border:0.5px solid var(--border);border-radius:7px;font-size:13px;cursor:pointer;color:#333;}
+    .modal-body{padding:22px;overflow-x:auto;}
+    .verdict-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:99px;font-size:12px;font-weight:600;}
+    .vb-valid{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
+    .vb-invalid{background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
+    .modal-stats{margin-bottom:18px;}
+    .modal-stats-table{width:100%;border-collapse:collapse;font-size:12px;border-radius:9px;overflow:hidden;border:0.5px solid var(--border);}
+    .modal-stats-table th{background:var(--surface);padding:8px 12px;font-size:10px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;font-family:var(--mono);border:0.5px solid var(--border);text-align:center;}
+    .modal-stats-table th:first-child{text-align:left;}
+    .modal-stats-table td{padding:9px 12px;border:0.5px solid var(--border);text-align:center;background:#fff;}
+    .modal-stats-table td:first-child{font-size:11px;font-weight:600;color:#1a1a1a;text-align:left;background:var(--surface);font-family:var(--mono);}
+    .mstat-rate{font-size:15px;font-weight:700;}
+    .mstat-count{font-size:13px;font-weight:600;}
+    .mstat-count.green{color:var(--green);}
+    .mstat-count.red{color:var(--red);}
+    .mstat-count.gold{color:var(--gold-dark);}
+    .acceptance-row{display:flex;align-items:center;gap:12px;margin-top:10px;padding:10px 14px;background:var(--surface);border-radius:9px;border:0.5px solid var(--border);}
+    .acceptance-label{font-size:10px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;font-family:var(--mono);}
+    .acceptance-val{font-size:20px;font-weight:700;}
+    .mstat{background:var(--surface);border-radius:9px;padding:12px;text-align:center;}
+    .mstat-num{font-size:18px;font-weight:600;color:#1a1a1a;}
+    .mstat-num.gold{color:var(--gold-dark);}
+    .mstat-num.green{color:var(--green);}
+    .mstat-num.red{color:var(--red);}
+    .mstat-lbl{font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;font-family:var(--mono);}
+    .res-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;}
+    .res-table th{background:var(--surface);padding:9px 10px;text-align:left;font-weight:500;color:var(--gray);font-size:10px;text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border);}
+    .res-table td{padding:9px 10px;border-bottom:0.5px solid var(--border);vertical-align:top;color:#2d3748;}
+    .res-table tr:last-child td{border-bottom:none;}
+    .res-table th:nth-child(1),.res-table td:nth-child(1){width:36px;}
+    .res-table th:nth-child(3),.res-table td:nth-child(3){width:120px;}
+    .res-table th:nth-child(4),.res-table td:nth-child(4){width:90px;}
+    .res-table th:nth-child(5),.res-table td:nth-child(5){width:120px;}
+    .res-table th:nth-child(6),.res-table td:nth-child(6){width:90px;}
+    .res-table th:nth-child(7),.res-table td:nth-child(7){width:110px;}
+    .vbadge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:99px;font-size:10px;font-weight:600;}
+    .vb-confirmed{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
+    .vb-disputed{background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
+    .vb-no-ev{background:var(--surface);color:var(--gray);border:0.5px solid var(--border);}
+    .cause-tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;margin:1px;background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
+    .meta-pill{display:inline-block;font-size:10px;padding:1px 7px;border-radius:99px;margin:1px;font-weight:600;}
+    .meta-ok{background:var(--green-bg);color:#1a7a45;}
+    .meta-fail{background:var(--red-bg);color:#8b0000;}
+    .meta-na{background:var(--surface);color:var(--gray);}
+
+    /* ══ TOAST ══ */
+    .toast{
+      position:fixed;bottom:24px;right:24px;z-index:9999;
+      background:#1a1a1a;color:#fff;padding:12px 20px;border-radius:10px;
+      font-size:13px;font-weight:500;
+      transform:translateY(80px);opacity:0;transition:all .3s;pointer-events:none;
+    }
+    .toast.show{transform:translateY(0);opacity:1;}
+
+    /* ══ LIGHTBOX ══ */
+    .lb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;align-items:center;justify-content:center;flex-direction:column;}
+    .lb-overlay.open{display:flex;}
+    .lb-img-wrap{position:relative;max-width:90vw;max-height:80vh;display:flex;align-items:center;justify-content:center;}
+    .lb-img{max-width:90vw;max-height:80vh;border-radius:8px;object-fit:contain;display:block;}
+    .lb-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:0.5px solid rgba(255,255,255,.3);color:#fff;width:44px;height:44px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s;}
+    .lb-btn:hover{background:rgba(255,255,255,.3);}
+    .lb-prev{left:-60px;}
+    .lb-next{right:-60px;}
+    .lb-close{position:fixed;top:20px;right:20px;background:rgba(255,255,255,.15);border:0.5px solid rgba(255,255,255,.3);color:#fff;width:40px;height:40px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+    .lb-close:hover{background:rgba(255,255,255,.3);}
+    .lb-counter{color:rgba(255,255,255,.6);font-size:12px;margin-top:12px;font-family:var(--mono);}
+    .lb-filename{color:rgba(255,255,255,.4);font-size:11px;margin-top:4px;font-family:var(--mono);}
+    .thumb-img{width:48px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;border:1.5px solid transparent;transition:border-color .15s,transform .15s;flex-shrink:0;}
+    .thumb-img:hover{border-color:var(--gold);transform:scale(1.08);}
+
+    /* ══ DASHBOARD ══ */
+    .db-kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;}
+    .db-kpi{background:#fff;border:0.5px solid var(--border);border-radius:10px;padding:16px;text-align:center;}
+    .db-kpi-num{font-size:22px;font-weight:700;color:#1a1a1a;}
+    .db-kpi-num.green{color:var(--green);}
+    .db-kpi-num.red{color:var(--red);}
+    .db-kpi-num.gold{color:var(--gold-dark);}
+    .db-kpi-lbl{font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-top:4px;font-family:var(--mono);}
+    .db-filter-bar{display:flex;flex-wrap:wrap;gap:10px;background:#fff;border:0.5px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px;}
+    .db-filter-group{display:flex;flex-direction:column;gap:4px;min-width:130px;}
+    .db-filter-label{font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;font-family:var(--mono);}
+    .db-filter-input{padding:7px 10px;border:0.5px solid var(--border);border-radius:7px;font-size:12px;color:#1a1a1a;background:var(--surface);outline:none;font-family:var(--font);}
+    .db-filter-input:focus{border-color:var(--gold);}
+    .db-reset-btn{padding:8px 16px;background:var(--surface);border:0.5px solid var(--border);border-radius:7px;font-size:12px;font-weight:500;color:var(--gray);cursor:pointer;}
+    .db-reset-btn:hover{background:#fee;color:var(--red);border-color:#f5b8b8;}
+    .db-conf-bar{height:5px;background:#eee;border-radius:99px;overflow:hidden;margin-top:4px;}
+    .db-conf-fill{height:100%;border-radius:99px;}
+    th[onclick]:hover{background:#f0f0f0;}
+
+    /* ══ DUPLICATE CONFIRM MODAL ══ */
+    #dupModalOverlay{
+      display:none;position:fixed;inset:0;
+      background:rgba(0,0,0,.55);z-index:10000;
+      align-items:center;justify-content:center;
+    }
+    .dup-modal-box{
+      background:#fff;border-radius:14px;padding:28px 30px;
+      max-width:500px;width:90%;
+      box-shadow:0 8px 40px rgba(0,0,0,.25);
+      border:0.5px solid var(--border);
+    }
+    .dup-modal-title{font-size:15px;font-weight:600;color:#1a1a1a;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+    .dup-modal-msg{font-size:13px;color:#444;line-height:1.7;margin-bottom:22px;}
+    .dup-modal-btns{display:flex;gap:10px;justify-content:flex-end;}
+    .dup-btn-cancel{padding:9px 22px;background:var(--surface);border:0.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:500;color:#333;cursor:pointer;}
+    .dup-btn-cancel:hover{background:#eee;}
+    .dup-btn-replace{padding:9px 22px;background:var(--red);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;}
+    .dup-btn-replace:hover{background:#c82333;}
+  </style>
+</head>
+<body>
+
+<!-- ══ AUTH SCREEN ══ -->
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="auth-logo-icon">📋</div>
+      <h1>PM Validator Portal</h1>
+      <p>Irancell Preventive Maintenance System</p>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchAuthTab('login')">Sign In</button>
+      <button class="auth-tab" onclick="switchAuthTab('register')">Register</button>
+    </div>
+    <div class="auth-error" id="authError"></div>
+
+    <!-- LOGIN -->
+    <form id="loginForm" onsubmit="doLogin();return false;" autocomplete="on">
+      <div class="auth-field">
+        <label class="auth-label">Username</label>
+        <input class="auth-input" id="loginUser" type="text" placeholder="your username" autocomplete="username"/>
+      </div>
+      <div class="auth-field">
+        <label class="auth-label">Password</label>
+        <input class="auth-input" id="loginPass" type="password" placeholder="password" autocomplete="current-password"/>
+      </div>
+      <button class="auth-btn" type="submit">Sign In →</button>
+    </form>
+
+    <!-- REGISTER -->
+    <form id="registerForm" style="display:none" onsubmit="doRegister();return false;" autocomplete="on">
+      <div class="auth-field">
+        <label class="auth-label">Full Name</label>
+        <input class="auth-input" id="regName" type="text" placeholder="Your full name" autocomplete="name"/>
+      </div>
+      <div class="auth-field">
+        <label class="auth-label">Username</label>
+        <input class="auth-input" id="regUser" type="text" placeholder="choose a username" autocomplete="username"/>
+      </div>
+      <div class="auth-field">
+        <label class="auth-label">Password</label>
+        <input class="auth-input" id="regPass" type="password" placeholder="min 6 characters" autocomplete="new-password"/>
+      </div>
+      <div class="auth-field">
+        <label class="auth-label">Confirm Password</label>
+        <input class="auth-input" id="regPass2" type="password" placeholder="repeat password" autocomplete="new-password"/>
+      </div>
+      <button class="auth-btn" type="submit">Create Account →</button>
+    </form>
+    <div class="auth-footer">Irancell Internal Tool — Authorized Personnel Only</div>
+  </div>
+</div>
+
+<!-- ══ APP SHELL ══ -->
+<div id="appShell">
+  <nav class="topnav">
+    <div class="topnav-logo">
+      <div class="topnav-logo-icon">📋</div>
+      <div>
+        <h1>PM Batch Validator</h1>
+        <p>Irancell Preventive Maintenance</p>
+      </div>
+    </div>
+    <div class="topnav-right">
+      <div class="user-pill">
+        <div class="user-avatar" id="userAvatar">?</div>
+        <span id="userLabel">—</span>
+      </div>
+      <div id="llmHealthPill" class="user-pill" style="border-color:var(--gray); color:var(--gray);">
+        <span id="llmHealthIcon">⚪</span>
+        <span id="llmHealthText">LLM Unknown</span>
+      </div>
+      <button class="btn-signout" onclick="doSignOut()">Sign Out</button>
+    </div>
+  </nav>
+
+  <div id="subnav" class="subnav" style="display:none;">
+    <button class="subnav-tab active" id="tabValidator" onclick="switchTab('validator')">▶ Validator</button>
+    <button class="subnav-tab" id="tabHistory" onclick="switchTab('history')">📊 Dashboard</button>
+    <button class="subnav-tab" id="tabAdmin" onclick="switchTab('admin')" style="display:none;">📊 Dashboard</button>
+    <button class="subnav-tab" id="tabAudit" onclick="switchTab('audit')" style="display:none;">📜 Audit</button>
+    <button class="subnav-tab" id="tabTaskRules" onclick="switchTab('taskRules')" style="display:none;">📋 Task Rules</button>
+    <button class="subnav-tab" id="tabSites" onclick="switchTab('sites')" style="display:none;">📍 Sites</button>
+  </div>
+
+  <!-- VALIDATOR TAB -->
+  <div id="panelValidator" class="page-wrap">
+    <div class="main-pad">
+      <div class="dir-card">
+        <div style="width:38px;height:38px;background:var(--surface);border:0.5px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;">📁</div>
+        <div class="dir-path empty" id="dirPath">No folder selected — click "Select Folder" to begin</div>
+        <button class="btn-pick" id="btnSelectFolder" onclick="document.getElementById('folderInput').click()">Select Folder</button>
+        <button class="btn-pick" id="btnAddFiles" onclick="document.getElementById('fileInput').click()" style="background:var(--surface);border:0.5px solid var(--border);color:#333;">＋ Add Files</button>
+        <button class="btn-pick" id="btnClearFolder" onclick="clearFolder()" style="background:#6c757d;color:white;display:none;margin-left:5px;">✕ Clear</button>
+        <div id="globalRunControls" style="display:flex;gap:8px;align-items:center;">
+        <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;">▶ Run All</button>
+        <button class="btn-run" id="btnStopAll" onclick="stopAll()" style="background:#dc3545;display:none;">■ Stop All</button>
+        </div>
+        <input type="file" id="folderInput" webkitdirectory multiple accept=".pdf" style="display:none"/>
+        <input type="file" id="fileInput" multiple accept=".pdf" style="display:none"/>
+      </div>
+
+      <div class="summary-row" id="summaryRow" style="display:none">
+        <div class="stat-card"><div class="stat-num gold" id="sumTotal">0</div><div class="stat-lbl">Total Files</div></div>
+        <div class="stat-card"><div class="stat-num green" id="sumDone">0</div><div class="stat-lbl">Completed</div></div>
+        <div class="stat-card"><div class="stat-num red" id="sumDisputed">0</div><div class="stat-lbl">Disputed</div></div>
+        <div class="stat-card"><div class="stat-num gold" id="sumAvgPct">—</div><div class="stat-lbl">Avg Acceptance</div></div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="jobs-table">
+          <thead>
+            <tr>
+              <th class="col-id">File Name</th>
+              <th class="col-task">Task ID</th>
+              <th class="col-bar">Progress</th>
+              <th class="col-pct">Acceptance Rate</th>
+              <th class="col-ctl">Control</th>
+              <th class="col-act">Report</th>
+            </tr>
+          </thead>
+          <tbody id="jobsBody">
+            <tr><td colspan="5" style="padding:0;border:none;">
+              <div class="empty-state">
+                <div style="font-size:32px">📂</div>
+                <p>Select a folder containing PM Report PDF files to get started.</p>
+              </div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MODAL -->
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <div class="modal-header">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <h2 id="modalTitle">Validation Report</h2>
+            <div id="modalVerdict" class="verdict-badge vb-valid">✓ Validated</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button id="btnSaveReport" style="padding:7px 14px;background:var(--gold);border:none;border-radius:7px;font-size:12px;font-weight:600;color:#333;cursor:pointer;" onclick="saveCurrentReport()">💾 Save Report</button>
+            <button class="modal-close" onclick="closeModal()">✕ Close</button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="modal-stats" id="modalStats"></div>
+          <div id="modalHeaderInfo" class="header-info-box"></div>
+          <div style="overflow-x:auto;">
+            <table class="res-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Item Description</th><th>Photo Checks</th>
+                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
+                </tr>
+              </thead>
+              <tbody id="modalBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD TAB -->
+  <div id="panelHistory" style="display:none;">
+    <div class="main-pad">
+
+      <!-- KPI Row -->
+      <div class="db-kpi-row" id="dbKpiRow">
+        <div class="db-kpi"><div class="db-kpi-num" id="kpiTotal">—</div><div class="db-kpi-lbl">Total Reports</div></div>
+        <div class="db-kpi"><div class="db-kpi-num green" id="kpiValidated">—</div><div class="db-kpi-lbl">Fully Validated</div></div>
+        <div class="db-kpi"><div class="db-kpi-num red" id="kpiDisputed">—</div><div class="db-kpi-lbl">Disputed</div></div>
+        <div class="db-kpi"><div class="db-kpi-num gold" id="kpiAvgConf">—</div><div class="db-kpi-lbl">Avg Acceptance Rate</div></div>
+        <div class="db-kpi"><div class="db-kpi-num" id="kpiSites">—</div><div class="db-kpi-lbl">Unique Sites</div></div>
+      </div>
+
+      <!-- Filters -->
+      <div class="db-filter-bar">
+        <div class="db-filter-group">
+          <label class="db-filter-label">Task ID</label>
+          <input class="db-filter-input" id="fTaskId" type="text" placeholder="Search…" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Site ID</label>
+          <input class="db-filter-input" id="fSiteId" type="text" placeholder="Search…" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Task Category</label>
+          <select class="db-filter-input" id="fCategory" onchange="applyFilters()"><option value="">All</option></select>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Task Subcategory</label>
+          <select class="db-filter-input" id="fSubcategory" onchange="applyFilters()"><option value="">All</option></select>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Report FME</label>
+          <select class="db-filter-input" id="fFme" onchange="applyFilters()"><option value="">All</option></select>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Date From</label>
+          <input class="db-filter-input" id="fDateFrom" type="date" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Date To</label>
+          <input class="db-filter-input" id="fDateTo" type="date" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Min Confirmation %</label>
+          <input class="db-filter-input" id="fMinConf" type="number" min="0" max="100" placeholder="0" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group">
+          <label class="db-filter-label">Max Confirmation %</label>
+          <input class="db-filter-input" id="fMaxConf" type="number" min="0" max="100" placeholder="100" oninput="applyFilters()"/>
+        </div>
+        <div class="db-filter-group" style="align-self:flex-end;">
+          <button class="db-reset-btn" onclick="resetFilters()">↺ Reset</button>
+        </div>
+      </div>
+
+      <!-- Results count -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <span style="font-size:12px;color:var(--gray);" id="historyCount">0 reports</span>
+        <span style="font-size:11px;color:var(--gray);" id="dbFilteredCount"></span>
+      </div>
+
+      <!-- Report Table -->
+      <div class="table-wrap">
+        <table class="jobs-table" style="table-layout:fixed;">
+          <thead>
+            <tr>
+              <th style="width:150px;cursor:pointer" onclick="dbSort('taskId')">Task ID <span id="sort-taskId"></span></th>
+              <th style="width:90px;cursor:pointer" onclick="dbSort('siteId')">Site ID <span id="sort-siteId"></span></th>
+              <th style="width:140px;cursor:pointer" onclick="dbSort('taskCategory')">Category <span id="sort-taskCategory"></span></th>
+              <th style="width:160px;cursor:pointer" onclick="dbSort('taskSubcategory')">Subcategory <span id="sort-taskSubcategory"></span></th>
+              <th style="width:110px;cursor:pointer" onclick="dbSort('reportDate')">Date <span id="sort-reportDate"></span></th>
+              <th style="width:130px;cursor:pointer" onclick="dbSort('fmeName')">FME <span id="sort-fmeName"></span></th>
+              <th style="width:90px;cursor:pointer;text-align:center" onclick="dbSort('confirmation')">Acceptance Rate <span id="sort-confirmation"></span></th>
+              <th style="width:80px;text-align:center">Status</th>
+              <th style="width:150px;text-align:center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="dbTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Report Detail Modal -->
+    <div class="modal-overlay" id="histModalOverlay">
+      <div class="modal-box">
+        <div class="modal-header">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <h2 id="histModalTitle">Validation Report</h2>
+            <div id="histModalVerdict" class="verdict-badge vb-valid">✓ Validated</div>
+          </div>
+          <button class="modal-close" onclick="closeHistModal()">✕ Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-stats" id="histModalStats"></div>
+          <div id="histModalHeaderInfo" class="header-info-box"></div>
+          <div style="overflow-x:auto;">
+            <table class="res-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Item Description</th><th>Photo Checks</th>
+                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
+                </tr>
+              </thead>
+              <tbody id="histModalBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+   <!-- ADMIN TAB -->
+  <div id="panelAdmin" style="display:none;">
+   <div class="main-pad admin-main-pad">
+
+
+      <div id="adminDashboardPanel">
+        <div class="history-header">
+          <h2>All User Reports (Admin Dashboard)</h2>
+          <button class="btn-view" onclick="renderAdmin()">↺ Refresh</button>
+        </div>
+
+        <div class="db-kpi-row" id="adminKpiRow">
+          <div class="db-kpi"><div class="db-kpi-num" id="adminKpiTotal">—</div><div class="db-kpi-lbl">Total Reports</div></div>
+          <div class="db-kpi"><div class="db-kpi-num green" id="adminKpiValidated">—</div><div class="db-kpi-lbl">Fully Validated</div></div>
+          <div class="db-kpi"><div class="db-kpi-num red" id="adminKpiDisputed">—</div><div class="db-kpi-lbl">Disputed</div></div>
+          <div class="db-kpi"><div class="db-kpi-num gold" id="adminKpiAvgConf">—</div><div class="db-kpi-lbl">Avg Acceptance Rate</div></div>
+          <div class="db-kpi"><div class="db-kpi-num" id="adminKpiSites">—</div><div class="db-kpi-lbl">Unique Sites</div></div>
+        </div>
+
+        <div class="db-filter-bar">
+          <div class="db-filter-group"><label class="db-filter-label">Owner</label><input class="db-filter-input" id="adminOwner" type="text" placeholder="Search…" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Task ID</label><input class="db-filter-input" id="adminTaskId" type="text" placeholder="Search…" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Site ID</label><input class="db-filter-input" id="adminSiteId" type="text" placeholder="Search…" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Task Category</label><select class="db-filter-input" id="adminCategory" onchange="applyAdminDashboardFilters()"><option value="">All</option></select></div>
+          <div class="db-filter-group"><label class="db-filter-label">Task Subcategory</label><select class="db-filter-input" id="adminSubcategory" onchange="applyAdminDashboardFilters()"><option value="">All</option></select></div>
+          <div class="db-filter-group"><label class="db-filter-label">Report FME</label><select class="db-filter-input" id="adminFme" onchange="applyAdminDashboardFilters()"><option value="">All</option></select></div>
+          <div class="db-filter-group"><label class="db-filter-label">Date From</label><input class="db-filter-input" id="adminDateFrom" type="date" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Date To</label><input class="db-filter-input" id="adminDateTo" type="date" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Min Confirmation %</label><input class="db-filter-input" id="adminMinConf" type="number" min="0" max="100" placeholder="0" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group"><label class="db-filter-label">Max Confirmation %</label><input class="db-filter-input" id="adminMaxConf" type="number" min="0" max="100" placeholder="100" oninput="applyAdminDashboardFilters()"/></div>
+          <div class="db-filter-group" style="align-self:flex-end;"><button class="db-reset-btn" onclick="resetAdminDashboardFilters()">↺ Reset</button></div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <span style="font-size:12px;color:var(--gray);" id="adminCount">0 reports</span>
+          <span style="font-size:11px;color:var(--gray);" id="adminFilteredCount"></span>
+        </div>
+
+<div class="table-wrap admin-table-wrap">
+          <table class="jobs-table admin-reports-table" style="table-layout:fixed;">
+            <thead>
+              <tr>
+                <th style="width:100px;cursor:pointer" onclick="adminDbSort('owner')">Owner <span id="admin-sort-owner"></span></th>
+                <th style="width:150px;cursor:pointer" onclick="adminDbSort('taskId')">Task ID <span id="admin-sort-taskId"></span></th>
+                <th style="width:170px;cursor:pointer" onclick="adminDbSort('fileName')">File Name <span id="admin-sort-fileName"></span></th>
+                <th style="width:90px;cursor:pointer" onclick="adminDbSort('siteId')">Site ID <span id="admin-sort-siteId"></span></th>
+                <th style="width:140px;cursor:pointer" onclick="adminDbSort('taskCategory')">Category <span id="admin-sort-taskCategory"></span></th>
+                <th style="width:160px;cursor:pointer" onclick="adminDbSort('taskSubcategory')">Subcategory <span id="admin-sort-taskSubcategory"></span></th>
+                <th style="width:110px;cursor:pointer" onclick="adminDbSort('reportDate')">Date <span id="admin-sort-reportDate"></span></th>
+                <th style="width:130px;cursor:pointer" onclick="adminDbSort('fmeName')">FME <span id="admin-sort-fmeName"></span></th>
+                <th style="width:90px;cursor:pointer;text-align:center" onclick="adminDbSort('confirmation')">Acceptance Rate <span id="admin-sort-confirmation"></span></th>
+                <th style="width:80px;text-align:center">Status</th>
+                <th style="width:150px;text-align:center">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminTableBody"></tbody>
+          </table>
+        </div>
+      </div><!-- end adminDashboardPanel -->
+
+      <!-- AUDIT PANEL -->
+      <div id="adminAuditPanel" style="display:none;">
+        <div class="history-header">
+          <h2>System Audit Log</h2>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <input type="text" id="auditFilterUser" placeholder="User..." class="db-filter-input" style="width:120px;">
+            <input type="text" id="auditFilterEvent" placeholder="Event Type..." class="db-filter-input" style="width:150px;">
+            <input type="text" id="auditFilterTask" placeholder="Task ID..." class="db-filter-input" style="width:120px;">
+            <button class="btn-view" onclick="loadAuditLog()" style="background:var(--gold);font-weight:600;">Apply Filters</button>
+            <button class="btn-view" onclick="loadAuditLog()">↺ Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="jobs-table">
+            <thead>
+              <tr>
+                <th style="width:160px;">Time (UTC)</th>
+                <th style="width:160px;">Event Type</th>
+                <th>Description</th>
+                <th style="width:180px;">User / IP</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody"></tbody>
+          </table>
+        </div>
+      </div><!-- end adminAuditPanel -->
+
+      <!-- TASK RULES PANEL -->
+      <div id="adminTaskRulesPanel" style="display:none;">
+        <div class="history-header">
+          <h2>Task Rules Manager</h2>
+          <button class="btn-view" onclick="loadTaskRules()">↺ Refresh</button>
+        </div>
+        <div style="background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;">
+          <h3 style="margin:0 0 14px;font-size:14px;">Add / Update Rule</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr 80px;gap:10px;margin-bottom:10px;">
+            <div><label class="db-filter-label">Task Category</label><input class="db-filter-input" id="ruleCategory" placeholder="e.g. BSC Maintenance Project" style="width:100%"/></div>
+            <div><label class="db-filter-label">Task Subcategory</label><input class="db-filter-input" id="ruleSubcategory" placeholder="e.g. Tower Maintenance" style="width:100%"/></div>
+            <div><label class="db-filter-label">Task #</label><input class="db-filter-input" id="ruleTaskNum" placeholder="1" type="number" style="width:100%"/></div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label class="db-filter-label">Expected Condition</label>
+            <input class="db-filter-input" id="ruleExpected" placeholder="Describe what a passing condition looks like" style="width:100%"/>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+            <div><label class="db-filter-label">Checkpoints (one per line)</label><textarea class="db-filter-input" id="ruleCheckpoints" rows="3" placeholder="No corrosion on terminals&#10;Voltage display visible" style="width:100%;resize:vertical;font-family:var(--mono);font-size:12px;"></textarea></div>
+            <div><label class="db-filter-label">Fail If (one per line)</label><textarea class="db-filter-input" id="ruleFailIf" rows="3" placeholder="Corrosion visible&#10;Loose cables" style="width:100%;resize:vertical;font-family:var(--mono);font-size:12px;"></textarea></div>
+          </div>
+          <button class="btn-run" onclick="saveTaskRule()" style="padding:9px 24px;">💾 Save Rule</button>
+          <button class="btn-view" onclick="clearRuleForm()" style="margin-left:8px;">✕ Clear</button>
+        </div>
+<!-- CSV Upload for Task Rules -->
+        <div style="background:var(--surface);border:0.5px dashed var(--border);border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <div style="font-size:13px;color:#444;flex:1;min-width:200px;">
+            <strong>Bulk Import via CSV</strong><br>
+            <span style="font-size:11px;color:var(--gray);">Columns: <code>taskCategory, taskSubcategory, taskNumber, expected, checkpoints, fail_if</code><br>
+            Separate multiple checkpoints/fail_if items with a pipe <code>|</code></span>
+          </div>
+          <a href="data:text/csv;charset=utf-8,%EF%BB%BF taskCategory%2CtaskSubcategory%2CtaskNumber%2Cexpected%2Ccheckpoints%2Cfail_if%0ABSC%20Maintenance%20Project%2CTower%20Maintenance%2C1%2CBattery%20should%20be%20healthy%2CNo%20corrosion%7CVoltage%20ok%2CCorrosion%20visible%7CLoose%20cables"
+             download="task_rules_template.csv"
+             class="btn-view" style="white-space:nowrap;text-decoration:none;padding:8px 14px;">⬇ Template</a>
+          <input type="file" id="rulesCSVInput" accept=".csv" style="display:none" onchange="importRulesCSV(this)">
+          <button class="btn-run" onclick="document.getElementById('rulesCSVInput').click()" style="padding:8px 18px;">📂 Upload CSV</button>
+          <div id="rulesCSVStatus" style="font-size:12px;color:var(--gray);width:100%;margin-top:4px;display:none;"></div>
+        </div>          
+        <div class="table-wrap">
+          <table class="jobs-table" style="table-layout:fixed;">
+            <thead><tr>
+              <th style="width:200px;">Category</th>
+              <th style="width:200px;">Subcategory</th>
+              <th style="width:60px;">Task #</th>
+              <th>Expected</th>
+              <th style="width:120px;text-align:center;">Actions</th>
+            </tr></thead>
+            <tbody id="taskRulesTableBody"></tbody>
+          </table>
+        </div>
+      </div><!-- end adminTaskRulesPanel -->
+
+      <!-- SITES PANEL -->
+      <div id="adminSitesPanel" style="display:none;">
+        <div class="history-header">
+          <h2>Site GPS Registry</h2>
+          <button class="btn-view" onclick="loadSites()">↺ Refresh</button>
+        </div>
+        <div style="background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;">
+          <h3 style="margin:0 0 14px;font-size:14px;">Add / Update Site</h3>
+          <div style="display:grid;grid-template-columns:1fr 160px 160px auto;gap:10px;align-items:flex-end;">
+            <div><label class="db-filter-label">Site ID</label><input class="db-filter-input" id="siteIdInput" placeholder="e.g. E1048" style="width:100%"/></div>
+            <div><label class="db-filter-label">Latitude</label><input class="db-filter-input" id="siteLatInput" placeholder="35.6995" type="number" step="any" style="width:100%"/></div>
+            <div><label class="db-filter-label">Longitude</label><input class="db-filter-input" id="siteLonInput" placeholder="51.3380" type="number" step="any" style="width:100%"/></div>
+            <div><button class="btn-run" onclick="saveSite()" style="padding:9px 24px;">💾 Save</button></div>
+          </div>
+        </div>
+<!-- CSV Upload for Sites -->
+        <div style="background:var(--surface);border:0.5px dashed var(--border);border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <div style="font-size:13px;color:#444;flex:1;min-width:200px;">
+            <strong>Bulk Import via CSV</strong><br>
+            <span style="font-size:11px;color:var(--gray);">Columns: <code>siteId, lat, lon</code></span>
+          </div>
+          <a href="data:text/csv;charset=utf-8,%EF%BB%BFsiteId,lat,lon%0AE1048,29.596460,52.508816"
+             download="sites_template.csv"
+             class="btn-view" style="white-space:nowrap;text-decoration:none;padding:8px 14px;">⬇ Template</a>
+          <input type="file" id="sitesCSVInput" accept=".csv" style="display:none" onchange="importSitesCSV(this)">
+          <button class="btn-run" onclick="document.getElementById('sitesCSVInput').click()" style="padding:8px 18px;">📂 Upload CSV</button>
+          <div id="sitesCSVStatus" style="font-size:12px;color:var(--gray);width:100%;margin-top:4px;display:none;"></div>
+        </div>          
+        <div class="table-wrap">
+          <table class="jobs-table" style="table-layout:fixed;">
+            <thead><tr>
+              <th>Site ID</th>
+              <th style="width:180px;">Latitude</th>
+              <th style="width:180px;">Longitude</th>
+              <th style="width:120px;text-align:center;">Actions</th>
+            </tr></thead>
+            <tbody id="sitesTableBody"></tbody>
+          </table>
+        </div>
+      </div><!-- end adminSitesPanel -->
+
+    <!-- Admin Report Detail Modal -->
+    <div class="modal-overlay" id="adminModalOverlay">
+      <div class="modal-box">
+        <div class="modal-header">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <h2 id="adminModalTitle">Validation Report</h2>
+            <div id="adminModalVerdict" class="verdict-badge vb-valid">✓ Validated</div>
+          </div>
+          <button class="modal-close" onclick="closeAdminModal()">✕ Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-stats" id="adminModalStats"></div>
+          <div id="adminModalHeaderInfo" class="header-info-box"></div>
+          <div style="overflow-x:auto;">
+            <table class="res-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Item Description</th><th>Photo Checks</th>
+                  <th>PDF Status</th><th>AI Explanation</th><th>AI Verdict</th><th>Status Match</th>
+                </tr>
+              </thead>
+              <tbody id="adminModalBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div><!-- end main-pad -->
+</div><!-- end panelAdmin -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+/* ══════════════════════════════════════════════
+   INDEXEDDB — PDF FILE STORAGE
+══════════════════════════════════════════════ */
+const DB_NAME    = 'pm_validator_db';
+const DB_VERSION = 1;
+const STORE_NAME = 'pdf_files';
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'key' });
+      }
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function idbSave(key, value) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).put({ key, value });
+    tx.oncomplete = () => resolve();
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+async function idbGet(key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(STORE_NAME, 'readonly');
+    const req = tx.objectStore(STORE_NAME).get(key);
+    req.onsuccess = e => resolve(e.target.result?.value ?? null);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function idbDelete(key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+async function idbClear() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+// Convert File object to storable object
+async function fileToStorable(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      data: e.target.result  // ArrayBuffer
+    });
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// Convert stored object back to File
+function storableToFile(stored) {
+  const blob = new Blob([stored.data], { type: stored.type });
+  return new File([blob], stored.name, { type: stored.type });
+}
+
+/* ══════════════════════════════════════════════
+   AUTH / STORAGE
+══════════════════════════════════════════════ */
+const STORAGE_PREFIX = 'pm_auth_';
+const REPORTS_PREFIX = 'pm_reports_';
+let currentUser = null;
+let openModalJobIdx = null;
+let activeAuditContext = {};
+/* Simple hash — pure JS, works on HTTP (no crypto.subtle needed) */
+function hashPassword(password) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < password.length; i++) {
+    h ^= password.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  // Second pass with salt for slightly more resistance
+  let h2 = 0x9747b28c;
+  for (let i = password.length - 1; i >= 0; i--) {
+    h2 ^= (password.charCodeAt(i) + i);
+    h2 = (h2 * 0x5bd1e995) >>> 0;
+  }
+  return (h >>> 0).toString(16).padStart(8,'0') + (h2 >>> 0).toString(16).padStart(8,'0') +
+    (h ^ h2).toString(16).padStart(8,'0') + ((h + h2) >>> 0).toString(16).padStart(8,'0');
+}
+
+function getUsers() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_PREFIX + 'users') || '{}'); } catch { return {}; }
+}
+
+function saveUsers(users) {
+  localStorage.setItem(STORAGE_PREFIX + 'users', JSON.stringify(users));
+}
+
+function getSessionUser() {
+  try { return JSON.parse(localStorage.getItem('pm_session') || 'null'); } catch { return null; }
+}
+
+function setSessionUser(user) {
+  localStorage.setItem('pm_session', JSON.stringify(user));
+}
+
+function clearSession() {
+  localStorage.removeItem('pm_session');
+}
+
+/* ── Persistent DB via window.storage (artifact storage, no size limit) ──
+   Key layout:  report:{username}:{taskId}   → single report JSON
+   Index key:   report_index:{username}       → array of taskIds (for listing)
+   This avoids the 5 MB localStorage quota and keeps each report independent.
+──────────────────────────────────────────────────────────────────────── */
+
+function _reportKey(username, taskId) {
+  // keys must have no whitespace / slashes / quotes
+  const safe = String(taskId).replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+  return `report:${username}:${safe}`;
+}
+function _indexKey(username) { return `report_index:${username}`; }
+
+/** Strip heavy base64 blobs from results before saving (photos live in MinIO) */
+function _stripPhotos(results) {
+  if (!Array.isArray(results)) return results;
+  return results.map(r => {
+    const copy = Object.assign({}, r);
+    delete copy.photos;          // array of {name, base64} — can be re-fetched from MinIO
+    if (copy.metaList) copy.metaList = copy.metaList.map(m => {
+      const mc = Object.assign({}, m);
+      return mc;
+    });
+    return copy;
+  });
+}
+
+async function getUserReports(username) {
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL+`/api/reports?username=${encodeURIComponent(username)}`);
+    return await res.json();
+  } catch (err) {
+    console.error('Failed to fetch reports:', err);
+    return [];
+  }
+}
+
+async function saveUserReports(username, reports) {
+  // reports[0] is always the latest one being saved/updated
+  const latest = reports[0];
+  if (!latest) return;
+  try {
+    await fetch(window.APP_CONFIG.BACKEND_URL+'/api/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, report: latest })
+    });
+  } catch (err) {
+    console.error('Failed to save report:', err);
+  }
+}
+
+async function deleteReportByTaskId(username, taskId) {
+  try {
+    await fetch(window.APP_CONFIG.BACKEND_URL+`/api/reports?username=${encodeURIComponent(username)}&taskId=${encodeURIComponent(taskId)}`, {
+      method: 'DELETE'
+    });
+  } catch (err) {
+    console.error('Failed to delete report:', err);
+  }
+}
+
+async function getUserFiles(username) {
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/userfiles?username=${encodeURIComponent(username)}`);
+    return await res.json();
+  } catch (err) {
+    console.error('Failed to fetch user files:', err);
+    return [];
+  }
+}
+
+async function saveUserFiles() {
+  if (!currentUser) return;
+  const username = currentUser.username;
+  const files = jobs
+    .filter(j => !j._noFile)
+    .map(j => ({
+      fileName: j.file.name,
+      taskId: j.taskId,
+      status: j.status === 'running' ? 'pending' : j.status,
+      confirmation: j.confirmation ?? null,
+      parsedHeader: j.parsedHeader || {},
+      parsedItems: j.parsedItems || [],
+      results: _stripPhotos(j.results || [])
+    }));
+  try {
+    await fetch(window.APP_CONFIG.BACKEND_URL + '/api/userfiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, files })
+    });
+  } catch (err) {
+    console.error('Failed to save user files:', err);
+  }
+}
+
+async function deleteUserFile(username, fileName) {
+  try {
+    await fetch(
+      window.APP_CONFIG.BACKEND_URL +
+      `/api/userfiles?username=${encodeURIComponent(username)}&fileName=${encodeURIComponent(fileName)}`,
+      { method: 'DELETE' }
+    );
+  } catch (err) {
+    console.error('Failed to delete user file:', err);
+  }
+}
+
+async function deleteAllUserFiles(username) {
+  try {
+    await fetch(
+      window.APP_CONFIG.BACKEND_URL +
+      `/api/userfiles?username=${encodeURIComponent(username)}`,
+      { method: 'DELETE' }
+    );
+  } catch (err) {
+    console.error('Failed to delete all user files:', err);
+  }
+}
+
+/* localStorage fallbacks (used when window.storage unavailable) */
+function _getUserReportsLS(username) {
+  try { return JSON.parse(localStorage.getItem(REPORTS_PREFIX + username) || '[]'); } catch { return []; }
+}
+function _saveUserReportsLS(username, reports) {
+  try { localStorage.setItem(REPORTS_PREFIX + username, JSON.stringify(reports)); }
+  catch (e) { showToast('⚠ Storage quota exceeded. Old reports may not be saved.'); }
+}
+
+/* ── AUTH UI ── */
+let authTab = 'login';
+
+function switchAuthTab(tab) {
+  authTab = tab;
+  document.getElementById('loginForm').style.display = tab === 'login' ? '' : 'none';
+  document.getElementById('registerForm').style.display = tab === 'register' ? '' : 'none';
+  document.querySelectorAll('.auth-tab').forEach((el, i) => {
+    el.classList.toggle('active', (tab === 'login' && i === 0) || (tab === 'register' && i === 1));
+  });
+  hideAuthError();
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('authError');
+  el.textContent = msg; el.classList.add('show');
+}
+function hideAuthError() {
+  document.getElementById('authError').classList.remove('show');
+}
+
+async function doLogin(u, p) {
+  hideAuthError();
+  const username = u || document.getElementById('loginUser').value.trim();
+  const password = p || document.getElementById('loginPass').value;
+  if (!username || !password) { showAuthError('Please fill all fields.'); return; }
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL+'/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (data.success) {
+      setSessionUser(data.user);
+      startApp(data.user);
+    } else {
+      showAuthError(data.error);
+    }
+  } catch (err) {
+    showAuthError('Login failed. Server unreachable.');
+  }
+}
+
+async function doRegister() {
+  hideAuthError();
+  const name = document.getElementById('regName').value.trim();
+  const username = document.getElementById('regUser').value.trim();
+  const password = document.getElementById('regPass').value;
+  const pass2 = document.getElementById('regPass2').value;
+  if (!name || !username || !password || !pass2) { showAuthError('Please fill all fields.'); return; }
+  if (password.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
+  if (password !== pass2) { showAuthError('Passwords do not match.'); return; }
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL+'/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, name, password })
+    });
+    const data = await res.json();
+    if (data.success) {
+      await doLogin(username, password);
+    } else {
+      showAuthError(data.error);
+    }
+  } catch (err) {
+    showAuthError('Registration failed.');
+  }
+}
+
+async function startApp(user) {
+  // load dynamic data — sites are public, task rules are admin-only
+  try {
+    const sitesRes = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/sites');
+    if (sitesRes.ok) SITES_DATA = await sitesRes.json();
+  } catch(e) { console.warn('Could not load sites from server', e); }
+
+  if (user.isAdmin) {
+    try {
+      const rulesRes = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/task-rules?admin_username=${encodeURIComponent(user.username)}`);
+      if (rulesRes.ok) TASK_RULES = await rulesRes.json();
+    } catch(e) { console.warn('Could not load task rules from server', e); }
+  }
+
+  document.getElementById('subnav').style.display = 'flex';
+  // Clear any data from a previous session on the same machine
+  jobs = [];
+  renderJobsTable();
+  updateSummary();
+  updateGlobalBtns();
+  document.getElementById('summaryRow').style.display = 'none';
+  document.getElementById('dirPath').textContent = 'No folder selected — click "Select Folder" to begin';
+  document.getElementById('dirPath').classList.add('empty');
+  document.getElementById('folderInput').value = '';
+  document.getElementById('fileInput').value = '';
+
+  currentUser = user;
+  const { username, name, isAdmin } = user;
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('appShell').classList.add('visible');
+  const initials = name.split(' ').map(n => n[0]).join('').substring(0,2).toUpperCase();
+  document.getElementById('userAvatar').textContent = initials;
+  document.getElementById('userLabel').textContent = name;
+
+if (isAdmin) {
+    document.getElementById('tabValidator').style.display = 'none';
+    document.getElementById('tabHistory').style.display   = 'none';
+    document.getElementById('tabAdmin').style.display     = '';
+    document.getElementById('tabAudit').style.display     = '';
+    document.getElementById('tabTaskRules').style.display = '';
+    document.getElementById('tabSites').style.display     = '';
+  } else {
+    document.getElementById('tabValidator').style.display = '';
+    document.getElementById('tabHistory').style.display   = '';
+    document.getElementById('tabAdmin').style.display     = 'none';
+    document.getElementById('tabAudit').style.display     = 'none';
+    document.getElementById('tabTaskRules').style.display = 'none';
+    document.getElementById('tabSites').style.display     = 'none';
+  }
+  switchTab(isAdmin ? 'admin' : 'validator');
+  if (!isAdmin) await renderHistory();
+
+  // // Bug 4: Restore folder selection from session storage
+  // const lastLabel = sessionStorage.getItem('lastFolderLabel');
+  // const lastNames = sessionStorage.getItem('lastFileNames');
+  // if (lastLabel && lastNames) {
+  //   const names = JSON.parse(lastNames);
+  //   document.getElementById('dirPath').textContent = lastLabel + ' (re-select folder to reprocess)';
+  //   document.getElementById('dirPath').classList.remove('empty');
+  //   document.getElementById('summaryRow').style.display = 'grid';
+  //   // Restore jobs array with placeholder file objects (names only)
+  //   jobs = names.map(name => ({
+  //     file: { name },
+  //     taskId: name.replace(/\.pdf$/i, ''),
+  //     status: 'pending',
+  //     pct: 0,
+  //     barLabel: 'Re-select folder to process',
+  //     confirmation: null,
+  //     results: [],
+  //     parsedItems: [],
+  //     parsedHeader: {},
+  //     paused: false
+  //   }));
+  //   renderJobsTable();
+  //   updateSummary();
+  //   updateGlobalBtns();
+  // }
+// Restore last session state from backend (cross-machine sync)
+  try {
+    const savedFiles = await getUserFiles(user.username);
+    if (!savedFiles.length) return;
+
+    const restoredJobs = [];
+
+    for (const saved of savedFiles) {
+      const name = saved.fileName;
+      if (!name) continue;
+
+      let file = null;
+      try {
+        const stored = await idbGet(`pdf_${user.username}_${name}`);
+        if (stored) file = storableToFile(stored);
+      } catch(e) {}
+
+      if (!file) {
+        try {
+          const res = await fetch(
+            window.APP_CONFIG.BACKEND_URL +
+            `/api/pdfs/download?username=${encodeURIComponent(user.username)}&filename=${encodeURIComponent(name)}`
+          );
+          if (res.ok) {
+            const blob = await res.blob();
+            const buffer = await blob.arrayBuffer();
+            const stored = { name, type: 'application/pdf', size: buffer.byteLength, data: buffer };
+            await idbSave(`pdf_${user.username}_${name}`, stored).catch(() => {});
+            file = storableToFile(stored);
+          }
+        } catch(e) { console.error('PDF download failed:', e); }
+      }
+
+      if (!file) continue;
+
+      let status = saved.status || 'pending';
+      if (status === 'running') status = 'pending';
+      restoredJobs.push({
+        file,
+        taskId:       saved.taskId       || name.replace(/\.pdf$/i, ''),
+        status,
+        pct:          status === 'done'  ? 100 :
+                      status === 'error' ? 100 : 0,
+        barLabel:     status === 'done'    ? 'Complete' :
+                      status === 'stopped' ? 'Stopped'  :
+                      status === 'error'   ? 'Failed'   : 'Waiting…',
+        confirmation: saved.confirmation ?? null,
+        results:      saved.results      || [],
+        parsedItems:  saved.parsedItems  || [],
+        parsedHeader: saved.parsedHeader || {},
+        paused:  false,
+        aborted: false,
+        _savedReport: status === 'done'
+      });
+    }
+
+    if (restoredJobs.length > 0 && jobs.length === 0) {
+      jobs = restoredJobs;
+      document.getElementById('dirPath').textContent = `${jobs.length} file${jobs.length !== 1 ? 's' : ''} restored`;
+      document.getElementById('dirPath').classList.remove('empty');
+      document.getElementById('summaryRow').style.display = 'grid';
+      renderJobsTable();
+      updateSummary();
+      updateGlobalBtns();
+    }
+  } catch(e) {
+    console.error('Could not restore session:', e);
+  }
+}
+
+async function _migrateLocalStorageReports(username) {
+  if (!window.storage) return;
+  const migKey = 'pm_migrated_' + username;
+  if (localStorage.getItem(migKey)) return;  // already done
+  const lsReports = _getUserReportsLS(username);
+  if (!lsReports.length) { localStorage.setItem(migKey, '1'); return; }
+  try {
+    await saveUserReports(username, lsReports);
+    localStorage.setItem(migKey, '1');
+    showToast('✓ Reports migrated to persistent storage');
+  } catch {}
+}
+
+function doSignOut() {
+
+  clearSession();
+  sessionStorage.removeItem('lastFolderLabel');
+  sessionStorage.removeItem('lastFileNames');
+  // Keep IndexedDB files — they restore on next sign-in
+  // If you want to clear on sign-out instead, uncomment:
+  // idbClear().catch(()=>{});
+  currentUser = null;
+  jobs = [];
+  document.getElementById('folderInput').value = '';
+  document.getElementById('fileInput').value = '';
+  document.getElementById('tabValidator').style.display = '';
+  document.getElementById('tabHistory').style.display = '';
+  document.getElementById('tabAdmin').style.display = 'none';
+  document.getElementById('tabAudit').style.display = 'none';
+  document.getElementById('subnav').style.display = 'none';
+  document.getElementById('appShell').classList.remove('visible');
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('loginUser').value = '';
+  document.getElementById('loginPass').value = '';
+  switchAuthTab('login');
+}
+/* Auto-restore session */
+window.addEventListener('DOMContentLoaded', () => {
+  const session = getSessionUser();
+  if (session) { startApp(session).catch(()=>{}); }
+
+  checkLlmHealth();
+  setInterval(checkLlmHealth, 30000);
+});
+
+// async function checkLlmHealth() {
+//   try {
+//     const res = await fetch('/health');
+//     const data = await res.json();
+//     const pill = document.getElementById('llmHealthPill');
+//     const icon = document.getElementById('llmHealthIcon');
+//     const text = document.getElementById('llmHealthText');
+//     if (data.llm && data.llm.available) {
+//       pill.style.borderColor = 'var(--green)';
+//       pill.style.color = 'var(--green)';
+//       icon.textContent = '🟢';
+//       text.textContent = 'LLM Online';
+//     } else {
+//       pill.style.borderColor = 'var(--red)';
+//       pill.style.color = 'var(--red)';
+//       icon.textContent = '🔴';
+//       text.textContent = 'LLM Offline';
+//     }
+//   } catch (err) {
+//     console.error('Failed to check LLM health:', err);
+//   }
+// }
+async function checkLlmHealth() {
+  const pill = document.getElementById('llmHealthPill');
+  const icon = document.getElementById('llmHealthIcon');
+  const text = document.getElementById('llmHealthText');
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/health');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const online = data.llm && data.llm.available;
+    pill.style.borderColor = online ? 'var(--green)' : 'var(--red)';
+    pill.style.color      = online ? 'var(--green)' : 'var(--red)';
+    icon.textContent = online ? '🟢' : '🔴';
+    text.textContent = online ? 'LLM Online' : 'LLM Offline';
+  } catch (err) {
+
+      
+    console.error('Failed to check LLM health:', err);
+    pill.style.borderColor = 'var(--red)';
+    pill.style.color       = 'var(--red)';
+    icon.textContent = '🔴';
+    text.textContent = 'LLM Offline';
+  }
+}
+/* ══════════════════════════════════════════════
+   TABS
+══════════════════════════════════════════════ */
+function switchTab(tab) {
+  // Remap audit → admin with subtab
+  let adminSubtab = 'dashboard';
+  if (tab === 'audit')     { adminSubtab = 'audit';     tab = 'admin'; }
+  if (tab === 'taskRules') { adminSubtab = 'taskRules'; tab = 'admin'; }
+  if (tab === 'sites')     { adminSubtab = 'sites';     tab = 'admin'; }
+
+  // Admins never see validator or history panels
+  if (currentUser?.isAdmin && (tab === 'validator' || tab === 'history')) { tab = 'admin'; }
+
+  // Non-admins fall back to validator
+  if (tab === 'admin' && (!currentUser || !currentUser.isAdmin)) tab = 'validator';
+
+  document.getElementById('panelValidator').style.display = tab === 'validator' ? '' : 'none';
+  document.getElementById('panelHistory').style.display   = tab === 'history'   ? '' : 'none';
+  document.getElementById('panelAdmin').style.display     = tab === 'admin'     ? '' : 'none';
+
+  document.getElementById('tabTaskRules').style.display = currentUser?.isAdmin ? '' : 'none';
+  document.getElementById('tabSites').style.display     = currentUser?.isAdmin ? '' : 'none';
+
+  document.getElementById('tabValidator').classList.toggle('active', tab === 'validator');
+  document.getElementById('tabHistory').classList.toggle('active',   tab === 'history');
+  document.getElementById('tabAdmin').classList.toggle('active',     tab === 'admin' && adminSubtab === 'dashboard');
+  document.getElementById('tabAudit').classList.toggle('active',     tab === 'admin' && adminSubtab === 'audit');
+  document.getElementById('tabTaskRules').classList.toggle('active', tab === 'admin' && adminSubtab === 'taskRules');
+  document.getElementById('tabSites').classList.toggle('active',     tab === 'admin' && adminSubtab === 'sites');
+
+  if (tab === 'history') renderHistory().catch(()=>{});
+  if (tab === 'admin')   switchAdminTab(adminSubtab);
+}
+/* ══════════════════════════════════════════════
+   SAVE / HISTORY
+══════════════════════════════════════════════ */
+async function saveCurrentReport() {
+  if (openModalJobIdx === null) return;
+  const job = jobs[openModalJobIdx];
+  if (!currentUser) return;
+  const h = job.parsedHeader || {};
+  const report = {
+    id: Date.now(),
+    savedAt: new Date().toISOString(),
+    fileName: job.file.name,
+    taskId: h.taskId || job.taskId,
+    siteId: h.siteId || '',
+    taskCategory: h.taskCategory || '',
+    taskSubcategory: h.taskSubcategory || '',
+    reportDate: h.reportDate || '',
+    fmeName: h.fmeName || '',
+    parsedHeader: h,
+    parsedItems: job.parsedItems,
+    results: _stripPhotos(job.results),
+    confirmation: job.confirmation,
+    acceptanceRate: job.acceptanceRate ?? null,
+  };
+
+//       parsedItems: [],
+//       parsedHeader: {},
+//       paused: false
+//     }));
+//     renderJobsTable();
+//     updateSummary();
+//     updateGlobalBtns();
+//   }
+await saveUserReports(currentUser.username, [report]);
+  showToast('✓ Report saved');
+  if (document.getElementById('panelHistory').style.display !== 'none') await renderHistory();
+}
+
+/* ── Dashboard state ── */
+let dbSortKey = 'savedAt';
+let dbSortDir = -1;
+
+async function renderHistory() {
+  if (!currentUser) return;
+  const reports = await getUserReports(currentUser.username);
+  populateFilterDropdowns(reports);
+  updateKpis(reports);
+  await applyFilters();
+}
+
+let adminReportsCache = [];
+let adminFilteredReports = [];
+let adminSortKey = 'savedAt';
+let adminSortDir = -1;
+
+function switchAdminTab(tab) {
+  if (!currentUser || !currentUser.isAdmin) return;
+  document.getElementById('adminDashboardPanel').style.display   = tab === 'dashboard' ? '' : 'none';
+  document.getElementById('adminAuditPanel').style.display       = tab === 'audit'     ? '' : 'none';
+  document.getElementById('adminTaskRulesPanel').style.display   = tab === 'taskRules' ? '' : 'none';
+  document.getElementById('adminSitesPanel').style.display       = tab === 'sites'     ? '' : 'none';
+  document.getElementById('tabAdmin').classList.toggle('active',     tab === 'dashboard');
+  document.getElementById('tabAudit').classList.toggle('active',     tab === 'audit');
+  document.getElementById('tabTaskRules').classList.toggle('active', tab === 'taskRules');
+  document.getElementById('tabSites').classList.toggle('active',     tab === 'sites');
+  if (tab === 'dashboard') renderAdmin().catch(()=>{});
+  if (tab === 'audit')     loadAuditLog().catch(()=>{});
+  if (tab === 'taskRules') loadTaskRules().catch(()=>{});
+  if (tab === 'sites')     loadSites().catch(()=>{});
+}
+async function renderAdmin() {
+  if (!currentUser || !currentUser.isAdmin) return;
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL+`/api/admin/reports?admin_username=${encodeURIComponent(currentUser.username)}`);
+    if (!res.ok) throw new Error('Admin report access denied');
+    adminReportsCache = await res.json();
+    populateAdminFilterDropdowns(adminReportsCache);
+    updateAdminKpis(adminReportsCache);
+    applyAdminDashboardFilters();
+  } catch (err) {
+    console.error('Admin fetch failed:', err);
+    const tbody = document.getElementById('adminTableBody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="padding:40px;text-align:center;color:var(--red);">Unable to load admin reports.</td></tr>';
+  }
+}
+
+function populateAdminFilterDropdowns(reports) {
+  const cats    = [...new Set(reports.map(r => r.taskCategory).filter(Boolean))].sort();
+  const subcats = [...new Set(reports.map(r => r.taskSubcategory).filter(Boolean))].sort();
+  const fmes    = [...new Set(reports.map(r => r.fmeName).filter(Boolean))].sort();
+  const fill = (id, vals) => {
+    const sel = document.getElementById(id); if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All</option>' + vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
+    sel.value = cur;
+  };
+  fill('adminCategory', cats); fill('adminSubcategory', subcats); fill('adminFme', fmes);
+}
+
+function updateAdminKpis(reports) {
+  const filtered  = getAdminDashboardFilteredReports(reports);
+  const validated = filtered.filter(r => !(r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
+  const disputed  = filtered.filter(r =>  (r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
+  const pcts = filtered.map(r => r.acceptanceRate ?? r.confirmation).filter(v => v != null);
+  const avg  = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
+  const sites = new Set(filtered.map(r => r.siteId).filter(Boolean)).size;
+  document.getElementById('adminKpiTotal').textContent     = filtered.length;
+  document.getElementById('adminKpiValidated').textContent = validated;
+  document.getElementById('adminKpiDisputed').textContent  = disputed;
+  document.getElementById('adminKpiAvgConf').textContent   = avg != null ? avg + '%' : '—';
+  document.getElementById('adminKpiSites').textContent     = sites || '—';
+}
+
+function getAdminDashboardFilteredReports(reports = adminReportsCache) {
+  const g = id => (document.getElementById(id)?.value || '');
+  const owner     = g('adminOwner').toLowerCase();
+  const taskId    = g('adminTaskId').toLowerCase();
+  const siteId    = g('adminSiteId').toLowerCase();
+  const category  = g('adminCategory');
+  const subcat    = g('adminSubcategory');
+  const fme       = g('adminFme');
+  const dateFrom  = g('adminDateFrom');
+  const dateTo    = g('adminDateTo');
+  const minConf   = parseInt(g('adminMinConf')) || 0;
+  const maxRaw    = parseInt(g('adminMaxConf'));
+  const maxConf   = isNaN(maxRaw) ? 100 : maxRaw;
+  return reports.filter(r => {
+    const ownerText = `${r.ownerName || ''} ${r.owner || ''}`.toLowerCase();
+    if (owner    && !ownerText.includes(owner)) return false;
+    if (taskId   && !(r.taskId||'').toLowerCase().includes(taskId)) return false;
+    if (siteId   && !(r.siteId||'').toLowerCase().includes(siteId)) return false;
+    if (category && r.taskCategory !== category) return false;
+    if (subcat   && r.taskSubcategory !== subcat) return false;
+    if (fme      && r.fmeName !== fme) return false;
+    const rd = (r.reportDate||'').substring(0,10);
+    if (dateFrom && rd && rd < dateFrom) return false;
+    if (dateTo && rd && rd > dateTo) return false;
+    const conf = r.confirmation ?? 0;
+    if (conf < minConf || conf > maxConf) return false;
+    return true;
+  });
+}
+
+function applyAdminDashboardFilters() {
+  if (!currentUser || !currentUser.isAdmin) return;
+  updateAdminKpis(adminReportsCache);
+  adminFilteredReports = getAdminDashboardFilteredReports();
+  adminFilteredReports.sort((a, b) => {
+        let va = adminSortKey === 'owner' ? (a.ownerName || a.owner || '') : (a[adminSortKey] ?? '');
+    let vb = adminSortKey === 'owner' ? (b.ownerName || b.owner || '') : (b[adminSortKey] ?? '');
+    if (va < vb) return -adminSortDir; if (va > vb) return adminSortDir; return 0;
+  });
+  ['owner','taskId','fileName','siteId','taskCategory','taskSubcategory','reportDate','fmeName','confirmation'].forEach(k => {
+    const el = document.getElementById('admin-sort-'+k);
+    if (el) el.textContent = k === adminSortKey ? (adminSortDir===1?' ↑':' ↓') : '';
+  });
+  const total = adminReportsCache.length;
+  document.getElementById('adminCount').textContent = total + ' report' + (total !== 1 ? 's' : '');
+  document.getElementById('adminFilteredCount').textContent = adminFilteredReports.length < total ? `Showing ${adminFilteredReports.length} of ${total}` : '';
+  const tbody = document.getElementById('adminTableBody');
+  if (!adminFilteredReports.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="padding:40px;text-align:center;color:var(--gray);font-size:13px;">No reports found across all users.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = adminFilteredReports.map((r, idx) => {
+  const conf = r.acceptanceRate ?? r.confirmation ?? 0;
+    const cc   = conf>=80?'high':conf>=50?'mid':'low';
+    const fc2  = conf>=80?'var(--green)':conf>=50?'#d4a017':'var(--red)';
+    const disp = (r.results||[]).some(x => x.verdict==='DISPUTED');
+    const rd   = r.reportDate ? r.reportDate.substring(0,10) : '—';
+    return `<tr style="cursor:pointer" onclick="openAdminReport(${idx})">
+      <td style="font-weight:600;color:var(--gold-dark)" title="${escHtml(r.owner||'')}">${escHtml(r.ownerName||r.owner||'—')}</td>
+      <td style="font-family:var(--mono);font-size:11px;font-weight:600">${escHtml(r.taskId||'—')}</td>
+      <td style="font-family:var(--mono);font-size:11px" onclick="event.stopPropagation()">${r.fileName ? `<button class="btn-view ready" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(r.fileName)}" onclick="openAdminPdfForReport(${idx})">${escHtml(r.fileName)}</button>` : '—'}</td>
+      <td style="font-family:var(--mono);font-size:11px">${escHtml(r.siteId||'—')}</td>
+      <td style="font-size:11px">${escHtml(r.taskCategory||'—')}</td>
+      <td style="font-size:11px">${escHtml(r.taskSubcategory||'—')}</td>
+      <td style="font-size:11px;font-family:var(--mono)">${escHtml(rd)}</td>
+      <td style="font-size:11px">${escHtml(r.fmeName||'—')}</td>
+      <td style="text-align:center">
+        <div class="pct-cell ${cc}" style="font-size:13px">${conf}%</div>
+        <div class="db-conf-bar"><div class="db-conf-fill" style="width:${conf}%;background:${fc2}"></div></div>
+      </td>
+      <td style="text-align:center"><span class="vbadge ${disp?'vb-disputed':'vb-confirmed'}">${disp?'Disputed':'Validated'}</span></td>
+      <td style="text-align:center" onclick="event.stopPropagation()">   
+        <button class="btn-view ready" onclick="openAdminReport(${idx})">View Report</button>
+        <button class="btn-delete" onclick="deleteReportByTaskId('${escAttr(r.owner)}','${escAttr(r.taskId)}').then(renderAdmin)" title="Delete">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function adminDbSort(key) {
+  adminSortDir = adminSortKey===key ? adminSortDir*-1 : 1;
+  adminSortKey = key;
+  applyAdminDashboardFilters();
+}
+
+function resetAdminDashboardFilters() {
+  ['adminOwner','adminTaskId','adminSiteId','adminDateFrom','adminDateTo','adminMinConf','adminMaxConf'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  ['adminCategory','adminSubcategory','adminFme'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  applyAdminDashboardFilters();
+}
+function openAdminPdfForReport(idx) {
+  const r = adminFilteredReports[idx];
+  if (!r?.owner || !r?.fileName) return;
+  const url = window.APP_CONFIG.BACKEND_URL +
+    `/api/pdfs/download?username=${encodeURIComponent(r.owner)}&filename=${encodeURIComponent(r.fileName)}`;
+  window.open(url, '_blank', 'noopener');
+}
+
+async function openAdminReport(idx) {
+  const r = adminFilteredReports[idx];
+  if (!r) return;
+  const title = `${r.taskId || r.fileName} — ${r.ownerName || r.owner}`;
+  renderModalContent(r.parsedHeader, r.parsedItems, r.results, title,
+    'adminModalTitle','adminModalVerdict','adminModalStats','adminModalHeaderInfo','adminModalBody');
+  document.getElementById('adminModalOverlay').classList.add('open');
+  const enriched = await fetchPhotosForResults(r.results, r.parsedHeader?.taskId || r.taskId);
+  if (enriched) renderModalContent(r.parsedHeader, r.parsedItems, enriched, title,
+    'adminModalTitle','adminModalVerdict','adminModalStats','adminModalHeaderInfo','adminModalBody');    
+}
+
+function closeAdminModal() {
+  document.getElementById('adminModalOverlay').classList.remove('open');
+}
+
+async function loadAuditLog() {
+  if (!currentUser || !currentUser.isAdmin) return;
+  const user = document.getElementById('auditFilterUser').value.trim();
+  const event = document.getElementById('auditFilterEvent').value.trim();
+  const task = document.getElementById('auditFilterTask').value.trim();
+  let url = window.APP_CONFIG.BACKEND_URL+`/audit?admin_username=${encodeURIComponent(currentUser.username)}&`;
+  if (user) url += `username=${encodeURIComponent(user)}&`;
+  if (event) url += `event_type=${encodeURIComponent(event)}&`;
+  if (task) url += `task_id=${encodeURIComponent(task)}&`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Audit access denied');
+    const logs = await res.json();
+    const tbody = document.getElementById('auditTableBody');
+    if (!logs.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--gray);">No audit events found.</td></tr>';
+      return;
+    }
+    const AUDIT_BADGE_STYLES = {
+      'JOB_COMPLETED':  'background:#d4edda;color:#155724;border:0.5px solid #c3e6cb',
+      'JOB_FAILED':     'background:#f8d7da;color:#721c24;border:0.5px solid #f5c6cb',
+      'LLM_CALL':       'background:#cce5ff;color:#004085;border:0.5px solid #b8daff',
+      'LLM_FAILURE':    'background:#f8d7da;color:#721c24;border:0.5px solid #f5c6cb',
+      'PDF_SUBMITTED':  'background:#fff3cd;color:#856404;border:0.5px solid #ffeeba',
+      'FILE_DELETED':   'background:#e2e3e5;color:#383d41;border:0.5px solid #d6d8db',
+      'FILE_REPLACED':  'background:#fff8d6;color:#533f03;border:0.5px solid #ffe082',
+      'JOB_STARTED':    'background:#d1ecf1;color:#0c5460;border:0.5px solid #bee5eb',
+      'STOP_ALL':       'background:#e2e3e5;color:#383d41;border:0.5px solid #d6d8db',
+    };
+    tbody.innerHTML = logs.map(l => {
+      const ts = l.timestamp.replace('T', ' ').substring(0, 19);
+      const badgeStyle = AUDIT_BADGE_STYLES[l.event_type] || 'background:#e2e3e5;color:#383d41;border:0.5px solid #d6d8db';
+      const desc = escHtml(l.description || l.detail || '—');
+      const userIp = escHtml((l.username || '—') + ' / ' + (l.ip_address || '—'));
+      return `<tr>
+        <td style="font-family:var(--mono);font-size:11px;white-space:nowrap;">${ts}</td>
+        <td><span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:99px;font-size:10px;font-weight:600;white-space:nowrap;${badgeStyle}">${escHtml(l.event_type)}</span></td>
+        <td style="font-size:12px;color:#2d3748;">${desc}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${userIp}</td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    console.error('Audit fetch failed:', err);
+  }
+}
+function populateFilterDropdowns(reports) {
+  const cats    = [...new Set(reports.map(r => r.taskCategory).filter(Boolean))].sort();
+  const subcats = [...new Set(reports.map(r => r.taskSubcategory).filter(Boolean))].sort();
+  const fmes    = [...new Set(reports.map(r => r.fmeName).filter(Boolean))].sort();
+  const fill = (id, vals) => {
+    const sel = document.getElementById(id); if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All</option>' + vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
+    sel.value = cur;
+  };
+  fill('fCategory', cats); fill('fSubcategory', subcats); fill('fFme', fmes);
+}
+
+function updateKpis(reports) {
+  const filtered  = getFilteredReports(reports);
+  const validated = filtered.filter(r => !(r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
+  const disputed  = filtered.filter(r =>  (r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
+  const pcts = filtered.map(r => r.acceptanceRate ?? r.confirmation).filter(v => v != null);
+  const avg  = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
+  const sites = new Set(filtered.map(r => r.siteId).filter(Boolean)).size;
+  document.getElementById('kpiTotal').textContent     = filtered.length;
+  document.getElementById('kpiValidated').textContent = validated;
+  document.getElementById('kpiDisputed').textContent  = disputed;
+  document.getElementById('kpiAvgConf').textContent   = avg != null ? avg + '%' : '—';
+  document.getElementById('kpiSites').textContent     = sites || '—';
+}
+
+function getFilteredReports(reports) {
+  const g = id => (document.getElementById(id)?.value || '');
+  const fTaskId   = g('fTaskId').toLowerCase();
+  const fSiteId   = g('fSiteId').toLowerCase();
+  const fCat      = g('fCategory');
+  const fSub      = g('fSubcategory');
+  const fFme      = g('fFme');
+  const fDateFrom = g('fDateFrom');
+  const fDateTo   = g('fDateTo');
+  const fMinConf  = parseInt(g('fMinConf'))  || 0;
+  const fMaxConf  = parseInt(g('fMaxConf'));
+  const maxConf   = isNaN(fMaxConf) ? 100 : fMaxConf;
+  return reports.filter(r => {
+    if (fTaskId  && !(r.taskId||'').toLowerCase().includes(fTaskId))   return false;
+    if (fSiteId  && !(r.siteId||'').toLowerCase().includes(fSiteId))   return false;
+    if (fCat     && r.taskCategory    !== fCat)    return false;
+    if (fSub     && r.taskSubcategory !== fSub)    return false;
+    if (fFme     && r.fmeName         !== fFme)    return false;
+    const rd = (r.reportDate||'').substring(0,10);
+    if (fDateFrom && rd && rd < fDateFrom) return false;
+    if (fDateTo   && rd && rd > fDateTo)   return false;
+    const conf = r.confirmation ?? 0;
+    if (conf < fMinConf || conf > maxConf) return false;
+    return true;
+  });
+}
+
+async function applyFilters() {
+  if (!currentUser) return;
+  const reports  = await getUserReports(currentUser.username);
+  updateKpis(reports);
+  const filtered = getFilteredReports(reports);
+  filtered.sort((a, b) => {
+    let va = a[dbSortKey] ?? '', vb = b[dbSortKey] ?? '';
+    if (va < vb) return -dbSortDir; if (va > vb) return dbSortDir; return 0;
+  });
+  ['taskId','siteId','taskCategory','taskSubcategory','reportDate','fmeName','confirmation'].forEach(k => {
+    const el = document.getElementById('sort-'+k);
+    if (el) el.textContent = k === dbSortKey ? (dbSortDir===1?' ↑':' ↓') : '';
+  });
+  const total = reports.length;
+  document.getElementById('historyCount').textContent = total + ' report' + (total!==1?'s':'');
+  const fc = document.getElementById('dbFilteredCount');
+  if (fc) fc.textContent = filtered.length < total ? `Showing ${filtered.length} of ${total}` : '';
+  const tbody = document.getElementById('dbTableBody');
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--gray);font-size:13px;">${total?'No reports match the current filters.':'No saved reports yet. Run the validator and click "Save Report".'}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = filtered.map(r => {
+    const conf = r.acceptanceRate ?? r.confirmation ?? 0;
+    const cc   = conf>=80?'high':conf>=50?'mid':'low';
+    const fc2  = conf>=80?'var(--green)':conf>=50?'#d4a017':'var(--red)';
+    const disp = (r.results||[]).some(x => x.verdict==='DISPUTED');
+    const rd   = r.reportDate ? r.reportDate.substring(0,10) : '—';
+    const origIdx = reports.indexOf(r);
+    return `<tr style="cursor:pointer" onclick="openHistoryReport(${origIdx})">
+      <td style="font-family:var(--mono);font-size:11px;font-weight:600">${escHtml(r.taskId||'—')}</td>
+      <td style="font-family:var(--mono);font-size:11px">${escHtml(r.siteId||'—')}</td>
+      <td style="font-size:11px">${escHtml(r.taskCategory||'—')}</td>
+      <td style="font-size:11px">${escHtml(r.taskSubcategory||'—')}</td>
+      <td style="font-size:11px;font-family:var(--mono)">${escHtml(rd)}</td>
+      <td style="font-size:11px">${escHtml(r.fmeName||'—')}</td>
+      <td style="text-align:center">
+        <div class="pct-cell ${cc}" style="font-size:13px">${conf}%</div>
+        <div class="db-conf-bar"><div class="db-conf-fill" style="width:${conf}%;background:${fc2}"></div></div>
+      </td>
+      <td style="text-align:center"><span class="vbadge ${disp?'vb-disputed':'vb-confirmed'}">${disp?'Disputed':'Validated'}</span></td>
+        <td onclick="event.stopPropagation()">
+          <div class="admin-actions">
+            <button class="btn-view ready" onclick="openHistoryReport(${origIdx})">View Report</button>
+            <button class="btn-delete" onclick="deleteReportByTaskId('${escAttr(currentUser.username)}','${escAttr(r.taskId)}').then(()=>renderHistory())" title="Delete">🗑</button>
+          </div>
+        </td>
+    </tr>`;
+  }).join('');
+}
+
+function dbSort(key) {
+  dbSortDir = dbSortKey===key ? dbSortDir*-1 : 1;
+  dbSortKey = key;
+  applyFilters().catch(()=>{});
+}
+
+function resetFilters() {
+  ['fTaskId','fSiteId','fDateFrom','fDateTo','fMinConf','fMaxConf'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['fCategory','fSubcategory','fFme'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  applyFilters().catch(()=>{});
+}
+
+async function deleteHistoryReport(idx) {
+  if (!currentUser) return;
+  const reports = await getUserReports(currentUser.username);
+  const taskId = reports[idx]?.taskId;
+  reports.splice(idx, 1);
+  await saveUserReports(currentUser.username, reports);
+  if (taskId && window.storage) await deleteReportByTaskId(currentUser.username, taskId);
+//   await renderHistory();
+// // Bug 4: Restore folder selection from session storage
+//   const lastLabel = sessionStorage.getItem('lastFolderLabel');
+//   const lastNames = sessionStorage.getItem('lastFileNames');
+//   if (lastLabel && lastNames) {
+//     const names = JSON.parse(lastNames);
+//     document.getElementById('dirPath').textContent = lastLabel + ' (re-select folder to reprocess)';
+//     document.getElementById('dirPath').classList.remove('empty');
+//     document.getElementById('summaryRow').style.display = 'grid';
+//     // Restore jobs array with placeholder file objects (names only)
+//     jobs = names.map(name => ({
+//       file: { name },
+//       taskId: name.replace(/.pdf$/i, ''),
+//       status: 'pending',
+//       pct: 0,
+//       barLabel: 'Re-select folder to process',
+//       confirmation: null,
+//       results: [],
+//       parsedItems: [],
+//       parsedHeader: {},
+//       paused: false
+//     }));
+//     renderJobsTable();
+//     updateSummary();
+//     updateGlobalBtns();
+//   }
+
+//   showToast('Report deleted');
+await renderHistory();
+  showToast('Report deleted');    
+}
+
+async function openHistoryReport(idx) {
+  const reports = await getUserReports(currentUser.username);
+  const r = reports[idx];
+  // Open modal immediately with available data, then enrich with photos from MinIO
+  renderModalContent(r.parsedHeader, r.parsedItems, r.results, r.taskId||r.fileName,
+    'histModalTitle','histModalVerdict','histModalStats','histModalHeaderInfo','histModalBody');
+  document.getElementById('histModalOverlay').classList.add('open');
+  const enriched = await fetchPhotosForResults(r.results, r.parsedHeader?.taskId || r.taskId);
+  if (enriched) renderModalContent(r.parsedHeader, r.parsedItems, enriched, r.taskId||r.fileName,
+    'histModalTitle','histModalVerdict','histModalStats','histModalHeaderInfo','histModalBody');
+}
+
+function closeHistModal() {
+  document.getElementById('histModalOverlay').classList.remove('open');
+}
+document.addEventListener('click', e => {
+  if (e.target === document.getElementById('histModalOverlay')) closeHistModal();
+  if (e.target === document.getElementById('adminModalOverlay')) closeAdminModal();
+});
+
+/* ══════════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════════ */
+let toastTimeout;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+/* ══════════════════════════════════════════════
+   VALIDATOR (original logic, preserved exactly)
+══════════════════════════════════════════════ */
+const LLM_URL         = window.APP_CONFIG.LLM_URL;
+const LLM_MODEL       = window.APP_CONFIG.LLM_MODEL;
+const MINIO_BASE      = window.APP_CONFIG.MINIO_BASE;
+const BASE_PHOTO_PATH = `${MINIO_BASE}/photos/`;
+const EXTRACT_API     = window.APP_CONFIG.EXTRACT_API;
+
+// Fetch photos from MinIO for each result row and return enriched results array.
+// Returns null if no photos were found (so the caller can skip a second render).
+async function fetchPhotosForResults(results, taskId) {
+  if (!taskId || !Array.isArray(results)) return null;
+  const PHOTO_MAX = window.APP_CONFIG.PHOTO_MAX_INDEX;
+  const CONCURRENCY = 4;
+  const itemPhotoMap = {};
+  const rows = results.map(r => r.row).filter(Boolean);
+  for (let s = 0; s < rows.length; s += CONCURRENCY) {
+    await Promise.all(rows.slice(s, s + CONCURRENCY).map(async rowNum => {
+      const images = [];
+      for (let i = 1; i <= PHOTO_MAX; i++) {
+        const b64 = await fetchImageAsBase64(`${BASE_PHOTO_PATH}${taskId}/${rowNum}/${i}.jpg`);
+        if (!b64) break;
+        images.push({ name: `${i}.jpg`, base64: b64 });
+      }
+      if (images.length) itemPhotoMap[rowNum] = images;
+    }));
+  }
+  if (!Object.keys(itemPhotoMap).length) return null;
+  return results.map(r => ({ ...r, photos: itemPhotoMap[r.row] || r.photos || [] }));
+}
+const EXTRACT_PHOTOS  = window.APP_CONFIG.EXTRACT_PHOTOS;
+const JOB_API_BASE    = window.APP_CONFIG.JOB_API_BASE;    
+
+// const SITES_DATA = [
+//   {siteId:'225-Shahrekord-BSC',lat:32.31735333333334,lon:50.861},
+//   {siteId:'SITE002',lat:79,lon:80},
+//   {siteId:'SITE003',lat:35.6995,lon:51.3380},
+//   {siteId:'E2782',lat:35.6995,lon:51.3380},
+//   {siteId:'T3309',lat:35.6995,lon:51.3380},
+//   {siteId:'E1048',lat:29.596460,lon:52.508816},
+//   {siteId:'T8844',lat:31.290977,lon:52.48984},
+// ];
+let SITES_DATA = [];   // populated from backend on startup
+let TASK_RULES = {};
+let jobs = [];
+const jobControllers = {};
+
+// Save current job list status to IndexedDB
+// running jobs saved as pending — they cannot resume after page reload
+function _saveJobListToIdb() {
+  if (!currentUser) return;
+  const list = jobs.map(j => ({
+    name:   j.file.name,
+    // never save 'running' — treat as pending on restore
+    status: (j.status === 'running') ? 'pending' : j.status
+  }));
+  idbSave(`pdf_list_${currentUser.username}`, list).catch(() => {});
+}
+// Push a job's current status to the backend so all machines stay in sync
+async function syncJobStatus(job) {
+  if (!currentUser || !job) return;
+  try {
+    await saveUserReports(currentUser.username, [{
+      id: Date.now(),
+      savedAt: new Date().toISOString(),
+      fileName: job.file.name,
+      taskId: job.file.name.replace(/\.pdf$/i, ''),
+      status: job.status,
+      confirmation: job.confirmation ?? null,
+      acceptanceRate: job.acceptanceRate ?? null,
+      parsedHeader: job.parsedHeader || {},
+      parsedItems: job.parsedItems || [],
+      results: _stripPhotos(job.results || [])
+    }]);
+  } catch (e) { console.error('Status sync failed:', e); }
+}
+
+
+let runAllActive  = false;  // true while Run All loop is running
+let runAllAbort   = false;  // Bug 1: added missing declaration
+let runAllStopped = false;  // set to true by Stop to break the loop
+
+
+/* ── Table rendering ─────────────────────────────────────────────────── */
+function renderJobsTable() {
+  const tbody = document.getElementById('jobsBody');
+  if (!jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:0;border:none;"><div class="empty-state"><div style="font-size:32px">📂</div><p>Select a folder containing PM Report PDF files to get started.</p></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = jobs.map((job, idx) => buildJobRow(job, idx)).join('');
+}
+
+function buildJobRow(job, idx) {
+  const ar = job.acceptanceRate ?? job.confirmation;
+  const pctHtml = ar !== null && ar !== undefined
+    ? `<div class="pct-cell ${ar>=80?'high':ar>=50?'mid':'low'}">${ar}%</div>`
+    : `<div class="pct-cell na">—</div>`;
+const reportHtml = job.status === 'done'
+    ? `<button class="btn-view ready" onclick="openModal(${idx})">${job._savedReport ? '📂 View Report →' : 'View Report →'}</button>`
+    : job.status === 'error'
+    ? `<span style="font-size:11px;color:var(--red)">Error</span>`
+    : job.status === 'stopped'
+    ? `<span style="font-size:11px;color:#6c757d">Stopped</span>`
+    : `<button class="btn-view" disabled>—</button>`;
+  const fillClass = job.status==='done'?' done':job.status==='error'?' error':job.status==='stopped'?' stopped':'';
+    let ctlHtml = '';
+      if (job.status === 'running') {
+        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="stopSingle(${idx})" style="background:#fff0f0;color:#dc3545;border-color:#f5b8b8;">■ Stop</button></div>`;
+      } else if (job.status === 'done') {
+        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runSingle(${idx})">↺ Re-run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
+        } else if (job.status === 'error' || job.status === 'stopped') {
+            const canRun = !job._noFile;
+            ctlHtml = `<div class="col-ctl-wrap">${canRun ? `<button class="btn-job-run" onclick="runSingle(${idx})">↺ Re-run</button>` : `<span style="font-size:10px;color:var(--gray)">Re-select file</span>`}<button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
+      } else {
+        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runSingle(${idx})">▶ Run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
+      }
+      return `<tr>
+        <td class="col-id" style="font-family:var(--mono);font-size:12px;font-weight:500;">${escHtml(job.file.name)}</td>
+        <td class="col-task" style="font-family:var(--mono);font-size:12px;color:#555;">${escHtml(job.parsedHeader?.taskId||'—')}</td>
+        <td class="col-bar"><div class="bar-wrap"><div class="bar-track"><div class="bar-fill${fillClass}" style="width:${job.pct}%"></div></div><span class="bar-label">${escHtml(job.barLabel)}</span></div></td>
+        <td class="col-pct">${pctHtml}</td>
+        <td class="col-ctl">${ctlHtml}</td>
+        <td class="col-act">${reportHtml}</td>
+      </tr>`;
+    }
+
+function setJob(idx, updates) {
+  if (!jobs[idx]) return;
+  Object.assign(jobs[idx], updates);
+  renderJobsTable();
+  updateSummary();
+  updateGlobalBtns();
+  saveUserFiles();
+}
+
+function updateSummary() {
+  const done     = jobs.filter(j => j.status==='done').length;
+  const disputed = jobs.filter(j => j.status==='done' && j.confirmation!==null && j.confirmation<100).length;
+  const pcts     = jobs.filter(j => j.acceptanceRate!=null||j.confirmation!=null).map(j => j.acceptanceRate??j.confirmation);
+  const avg      = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
+  document.getElementById('sumTotal').textContent    = jobs.length;
+  document.getElementById('sumDone').textContent     = done;
+  document.getElementById('sumDisputed').textContent = disputed;
+  document.getElementById('sumAvgPct').textContent   = avg !== null ? avg+'%' : '—';
+}
+
+/* ── Global buttons ──────────────────────────────────────────────────── */
+function updateGlobalBtns() {
+  const hasPending = jobs.some(j => j.status === 'pending' || j.status === 'stopped' || j.status === 'error');
+  const isAnyRunning = jobs.some(j => j.status === 'running');
+  const btnRun    = document.getElementById('btnRunAll');
+  const btnStop   = document.getElementById('btnStopAll');
+
+  btnRun.style.display = (runAllActive || isAnyRunning) ? 'none' : '';
+  btnRun.disabled = !hasPending;
+
+  // Stop button: show whenever ANY job is running (single or batch)
+  btnStop.style.display = isAnyRunning ? '' : 'none';
+
+  // Bug 5 & 6 visibility
+  const hasJobs = jobs.length > 0;
+  const btnClear = document.getElementById('btnClearFolder');
+  const btnAdd = document.getElementById('btnAddFiles');
+  if (btnClear) btnClear.style.display = hasJobs ? 'inline-block' : 'none';
+  if (btnAdd) btnAdd.style.display = 'inline-block'; // always visible
+  // Keep folder/file pickers available while jobs run so users can queue more PDFs.
+  // Clearing the queue remains blocked during execution to avoid removing active jobs.
+  document.getElementById('folderInput').disabled = false;
+  document.getElementById('fileInput').disabled = false;
+  const btnSelect = document.getElementById('btnSelectFolder');
+  if (btnSelect) btnSelect.disabled = false;
+  if (btnClear) btnClear.disabled = isAnyRunning;
+  if (btnAdd) btnAdd.disabled = false;
+}
+
+/* ── Run All ─────────────────────────────────────────────────────────── */
+async function runAll() {
+  if (runAllActive) return;
+  runAllActive  = true;
+  runAllStopped = false;
+
+  // Build queue of all eligible job indices BEFORE marking them
+  const queue = [];
+  jobs.forEach((j, i) => {
+    if (j.status === 'pending' || j.status === 'stopped' || j.status === 'error') {
+      queue.push(i);
+    }
+  });
+
+  // Immediately mark ALL queued jobs as "running" in the UI (visual indicator)
+  queue.forEach(idx => {
+    jobs[idx].aborted  = false;
+    jobs[idx].status   = 'running';
+    jobs[idx].pct      = 0;
+    jobs[idx].barLabel = 'Queued…';
+  });
+  renderJobsTable();
+  updateGlobalBtns();
+
+  const MAX_CONCURRENT = 3;
+
+  // Workers pull from the queue and process one job at a time each
+  const runWorker = async () => {
+    while (true) {
+      if (runAllStopped) break;
+      if (queue.length === 0) break;
+
+      const idx = queue.shift();
+      if (idx === undefined) break;
+
+      // Skip if stopped externally between queueing and picking up
+      if (jobs[idx].aborted || jobs[idx].status === 'stopped') continue;
+
+      setJob(idx, { status: 'running', pct: 0, barLabel: 'Starting…' });
+
+      try {
+        await processJob(idx);
+      } catch (err) {
+        if (!jobs[idx].aborted && jobs[idx].status !== 'stopped') {
+          setJob(idx, { status: 'error', barLabel: 'Error: ' + err.message });
+        }
+      }
+    }
+  };
+
+  await Promise.all(Array(MAX_CONCURRENT).fill(null).map(() => runWorker()));
+
+  runAllActive  = false;
+  runAllStopped = false;
+  jobs.forEach((j, i) => {
+    if (j.status === 'running') { j.aborted = true; setJob(i, {status:'stopped', pct:0, barLabel:'Stopped'}); }
+  });
+  updateGlobalBtns();
+}
+async function checkJobPause(idx) {
+  if (jobs[idx].aborted) throw new Error('Job aborted');
+}
+/* ── Stop All ────────────────────────────────────────────────────────── */
+async function stopAll() {
+  runAllStopped = true;
+  runAllActive  = false;
+
+  // Hard-stop all running jobs immediately in the UI
+  jobs.forEach((j, i) => {
+    if (j.status === 'running') {
+      j.aborted = true;
+      j.paused  = false;
+      if (jobControllers[i]) { jobControllers[i].abort(); delete jobControllers[i]; }
+      setJob(i, {status:'stopped', pct:0, barLabel:'Stopped'});
+    }
+  });
+
+  // Notify backend to cancel any server-side extraction
+  try {
+    await fetch(window.APP_CONFIG.BACKEND_URL + '/stop-all', { method: 'POST' });
+  } catch(e) { console.warn('Stop-all backend call failed:', e); }
+}
+/* ── Run single job independently ────────────────────────────────────── */
+async function runSingle(idx) {
+  if (jobs[idx].status === 'running') return;
+  // Wait for any previous async process on this job to fully die
+  jobs[idx].aborted = true;
+  await new Promise(r => setTimeout(r, 200));
+  jobs[idx].aborted = false;
+  jobs[idx].paused  = false;
+  setJob(idx, { status: 'running', pct: 0, barLabel: 'Starting…' });
+  try {
+    await processJob(idx);
+  } catch (err) {
+    if (!jobs[idx].aborted) {
+      console.error(`Error on single job ${idx}:`, err);
+      setJob(idx, { status: 'error', pct: 0, barLabel: 'Error: ' + err.message });
+    }
+  }
+  updateGlobalBtns();
+}
+
+function stopSingle(idx) {
+  jobs[idx].aborted = true;
+  jobs[idx].paused  = false;
+  if (jobControllers[idx]) { jobControllers[idx].abort(); delete jobControllers[idx]; }
+  setJob(idx, { status: 'stopped', pct: 0, barLabel: 'Stopped' });
+}
+function isEnglishPdf(fullText, filename) {
+  // If text layer has Persian/Arabic chars it's Persian
+  if (/[\u0600-\u06FF]/.test(fullText)) return false;
+  // If filename or text has English task pattern it's English
+  return true;
+}
+
+async function processJob(idx) {
+  const job = jobs[idx];
+  // Create a fresh AbortController for this job run
+  const controller = new AbortController();
+  jobControllers[idx] = controller;
+  const signal = controller.signal;
+
+  try {
+    if (job.aborted) throw new Error('Job aborted');
+
+    if (EXTRACT_PHOTOS) {
+      setJob(idx, { status: 'running', pct: 2, barLabel: 'Submitting PDF...' });
+      const formData = new FormData();
+      formData.append('file', job.file);
+      if (currentUser) formData.append('username', currentUser.username);
+      const extractResp = await fetch(EXTRACT_API, { method: 'POST', body: formData });
+      const extractData = await extractResp.json();
+      if (!extractData.success) throw new Error(extractData.error || 'Submission failed');
+
+      const job_id = extractData.job_id;
+      job.serverJobId = job_id;
+      activeAuditContext = Object.assign({}, activeAuditContext, { job_id });
+      let jobStatus = 'pending';
+
+      // Start polling /job/<job_id>
+      while (jobStatus === 'pending' || jobStatus === 'running') {
+        await checkJobPause(idx);
+        if (runAllStopped) return;
+
+        // const pollResp = await fetch(`${EXTRACT_API.replace('/extract', '')}/job/${job_id}`);
+        const pollResp = await fetch(`${JOB_API_BASE}/job/${job_id}`);
+        const pollData = await pollResp.json();
+
+        jobStatus = pollData.status;
+        if (jobStatus === 'failed') throw new Error(pollData.error || 'Extraction failed on server');
+
+        setJob(idx, {
+          pct: Math.max(5, pollData.progress_pct),
+          barLabel: pollData.progress_label || (jobStatus === 'running' ? 'Extracting...' : 'Waiting...')
+        });
+
+        if (jobStatus === 'done') break;
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    } else {
+      setJob(idx, { status: 'running', pct: 2, barLabel: 'Using existing photos from MinIO...' });
+    }
+
+    if (job.aborted) throw new Error('Job aborted');
+    setJob(idx, { status: 'running', pct: 15, barLabel: 'Reading PDF…' });
+    const fileBuffer = await job.file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({
+      data:fileBuffer, verbosity:0, isEvalSupported:false,
+      useWorkerFetch:false, disableAutoFetch:false, disableStream:false, rangeChunkSize:65536
+    }).promise;
+    let fullText = '';
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const tc = await (await pdf.getPage(p)).getTextContent();
+      fullText += tc.items.map(i => i.str).join('\n') + '\n\f\n';
+    }
+    const headerKeys = {'Task ID:':'taskId','Task Category:':'taskCategory','Task Subcategory:':'taskSubcategory','Site ID:':'siteId','Report Date:':'reportDate','Report FME:':'fmeName'};
+    const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      for (const [label, key] of Object.entries(headerKeys)) {
+        if (lines[i].startsWith(label))
+          job.parsedHeader[key] = lines[i].replace(label,'').trim() || (lines[i+1]||'').trim();
+      }
+    }
+    const resolvedTaskId = job.parsedHeader.taskId || job.taskId;
+    job.taskId = resolvedTaskId;
+    activeAuditContext = { job_id: job.serverJobId, task_id: resolvedTaskId };
+    setJob(idx, {pct:15, barLabel:'Extracting items…'});
+    const isEnglish = isEnglishPdf(fullText, job.file.name);
+    const tasks = await extractTasksFromPdf(pdf, isEnglish, signal);
+    const llmItems = await extractItemsWithBatching(tasks, isEnglish, signal);
+    const cleanedItems = isEnglish ? llmItems : await cleanConsecutiveTasks(llmItems);
+    job.parsedItems = tasks.map(task => {
+      const match = cleanedItems.find(l => parseInt(l.num) === parseInt(task.num));
+      return {num:task.num, desc:match?.desc??task.desc, result:task.result??'NOT_OK'};
+    });
+    const siteInfo = SITES_DATA.find(s => s.siteId.toUpperCase()===(job.parsedHeader.siteId||'').toUpperCase()) || null;
+      if (job.aborted) throw new Error('Job aborted');
+    setJob(idx, {pct:40, barLabel:'Loading photos…'});
+    const itemPhotoMap = {};
+
+    const PHOTO_MAX = window.APP_CONFIG.PHOTO_MAX_INDEX;
+
+    async function fetchItemPhotos(item) {
+      const folderPath = `${BASE_PHOTO_PATH}${resolvedTaskId}/${item.num}/`;
+      const images = [];
+      for (let i = 1; i <= PHOTO_MAX; i++) {
+        const url = `${folderPath}${i}.jpg`;
+        const b64 = await fetchImageAsBase64(url);
+        if (!b64) break;
+        images.push({ name: `${i}.jpg`, base64: b64 });
+      }
+      if (images.length > 0) itemPhotoMap[item.num] = images;
+    }
+
+    // Concurrency-limited parallel fetch (max 4 at a time)
+    const CONCURRENCY = 4;
+    for (let s = 0; s < job.parsedItems.length; s += CONCURRENCY) {
+      await Promise.all(job.parsedItems.slice(s, s + CONCURRENCY).map(fetchItemPhotos));
+    }
+
+      if (job.aborted) throw new Error('Job aborted');
+    setJob(idx, {pct:55, barLabel:'AI validation…'});
+    const results = await runValidation(job.parsedItems, itemPhotoMap, job.parsedHeader, siteInfo, (i, total) => {
+      const p = 55 + Math.round((i/total)*35);
+      setJob(idx, {pct:p, barLabel:`Validating ${i}/${total}…`});
+    }, idx);
+    job.results = results;
+    const confirmed = results.filter(r => r.verdict==='CONFIRMED').length;
+    const total = results.length;
+    const confirmation = total > 0 ? Math.round(confirmed/total*100) : 0;
+    let matchCount = 0;
+    results.forEach(r => {
+      const item = (job.parsedItems||[]).find(i => i.num === r.row) || {};
+      const pdfOk = (item.result||'').toUpperCase() === 'OK';
+      const aiConf = r.verdict === 'CONFIRMED';
+      if (r.verdict !== 'NO_EVIDENCE' && ((pdfOk && aiConf) || (!pdfOk && !aiConf))) matchCount++;
+    });
+    const evidenceItems = results.filter(r => r.verdict !== 'NO_EVIDENCE').length;
+    const acceptanceRate = evidenceItems > 0 ? Math.round(matchCount / evidenceItems * 100) : 0;
+
+    // Check LLM health after processing completes
+    try {
+      const hRes = await fetch(window.APP_CONFIG.BACKEND_URL + '/health');
+      const hData = await hRes.json();
+      if (hData.llm && !hData.llm.available) {
+        const warningHtml = `
+          <div style="background:var(--red-bg); color:var(--red); padding:12px; border-radius:8px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; font-size:13px; font-weight:500; border:0.5px solid rgba(220,53,69,0.2);">
+            <span>⚠️ Warning: the LLM server was unavailable during processing. Some validation results may be unreliable.</span>
+            <button onclick="this.parentElement.remove()" style="background:none; border:none; color:var(--red); cursor:pointer; font-size:16px;">✕</button>
+          </div>`;
+        document.getElementById('modalStats').insertAdjacentHTML('beforebegin', warningHtml);
+      }
+    } catch (e) {}
+
+setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation, acceptanceRate });
+  } catch (err) {
+    // Clean up controller
+    if (jobControllers[idx]) { delete jobControllers[idx]; }
+    // If job was aborted/stopped, do not overwrite with error
+    if (job.aborted || jobs[idx].status === 'stopped') {
+      throw err; // re-throw so worker loop knows to stop, but UI stays as 'stopped'
+    }
+    console.error('Job error:', err);
+    setJob(idx, { status: 'error', pct: 100, barLabel: 'Failed: ' + err.message });
+    throw err;
+  }
+}
+function fixPersian(text) {
+  if (!text || !/[\u0600-\u06FF]/.test(text)) return text;
+  return text.split(' ').join(' ');
+}
+/* PDF parsing — identical to original */
+async function extractTasksFromPdf(pdf, isEnglish=false, signal=null) {
+  const tasks = []; let taskCounter = 1;
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const tc = await page.getTextContent();
+    const items = tc.items.map(it=>({str:(it.str||'').trim(),x:it.transform[4],y:it.transform[5]})).filter(it=>it.str);
+    const okItems = items.filter(it=>/^ok$/i.test(it.str));
+    const checkboxNotOks = items.filter(it=>/Not\s*Ok/i.test(it.str)).filter(notOk=>okItems.some(ok=>Math.abs(ok.y-notOk.y)<=10));
+    if (!checkboxNotOks.length){page.cleanup();continue;}
+    const anchorYs = checkboxNotOks.map(it=>it.y).sort((a,b)=>b-a);
+    /*const boundaries = anchorYs.map((y,i)=>({anchorY:y,top:i===0?1e5:(anchorYs[i-1]+y)/2,bottom:i===anchorYs.length-1?-1e5:(y+anchorYs[i+1])/2}));*/
+    const boundaries = anchorYs.map((y,i)=>({
+      anchorY: y,
+      top:    i===0                    ? 1e5  : (anchorYs[i-1] + y) / 2,
+      bottom: i===anchorYs.length-1   ? -1e5 : (y + anchorYs[i+1]) / 2
+    }));
+    const strips = await getCheckboxStripImage(pdf,pageNum,anchorYs);
+    const results = await Promise.all(strips.map(s => detectCheckboxFromStrip(s, signal)));
+    for (let bi=0;bi<boundaries.length;bi++){
+      const {top,bottom}=boundaries[bi];const result=results[bi]??'OK';
+      // const box=items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+10)).filter(it=>!/(^|\b)(ok|not\s*ok)(\b|$)|☑|☐|✓|✗/i.test(it.str));
+      const box = items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+3)).filter(it=>!/^(ok|not\s*ok)$/i.test(it.str.trim())).filter(it=>!/☑|☐|✓|✗/.test(it.str));
+      box.sort((a,b)=>Math.abs(a.y-b.y)>3?(isEnglish?b.y-a.y:a.y-b.y):(isEnglish?a.x-b.x:b.x-a.x));
+      const raw=box.map(it=>it.str).join(' ').replace(/\s+/g,' ').trim();
+      const desc=/[\u0600-\u06FF]/.test(raw)?fixPersian(raw):raw;
+      if(desc.length>5)tasks.push({num:taskCounter++,desc,result});
+    }
+    page.cleanup();
+  }
+  await pdf.destroy();
+  return tasks;
+}
+
+async function getCheckboxStripImage(pdf,pageNum,anchorYs){
+  const page=await pdf.getPage(pageNum);const viewport=page.getViewport({scale:2.0});
+  const canvas=document.createElement('canvas');canvas.width=viewport.width;canvas.height=viewport.height;
+  await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+  const SCALE=2,cropX=170*SCALE,cropW=160*SCALE,PADDING=30*SCALE;
+  return anchorYs.map(anchorY=>{
+    const canvasY=viewport.height-(anchorY*SCALE)-PADDING,cropH=PADDING*2;
+    const strip=document.createElement('canvas');strip.width=cropW;strip.height=cropH;
+    strip.getContext('2d').drawImage(canvas,cropX,canvasY,cropW,cropH,0,0,cropW,cropH);
+    return strip.toDataURL('image/jpeg',0.9);
+  });
+}
+/* ══════════════════════════════════════════════
+   CENTRAL LLM CALLER — handles 429 + retries
+══════════════════════════════════════════════ */
+const LLM_RATE_STATE = {
+  isThrottled: false,
+  retryAfter: 0,
+};
+
+function showLlmStatus(msg, isError = false) {
+  // Non-intrusive status bar — doesn't block the UI
+  let bar = document.getElementById('llmStatusBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'llmStatusBar';
+    bar.style.cssText = `
+      position:fixed; bottom:60px; right:24px; z-index:9998;
+      background:${isError ? '#fff3cd' : '#e8f4fd'};
+      border:0.5px solid ${isError ? '#ffc107' : '#90cdf4'};
+      border-radius:10px; padding:10px 16px; font-size:12px;
+      color:${isError ? '#856404' : '#2b6cb0'}; max-width:320px;
+      box-shadow:0 2px 8px rgba(0,0,0,.1); transition:opacity .3s;
+    `;
+    document.body.appendChild(bar);
+  }
+  bar.textContent = msg;
+  bar.style.opacity = '1';
+  bar.style.display = 'block';
+}
+
+function hideLlmStatus() {
+  const bar = document.getElementById('llmStatusBar');
+  if (bar) {
+    bar.style.opacity = '0';
+    setTimeout(() => { if (bar) bar.style.display = 'none'; }, 300);
+  }
+}
+
+
+
+// Helper: sleep that respects abort signal
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new Error('Job aborted'));
+      }, { once: true });
+    }
+  });
+}
+async function detectCheckboxFromStrip(stripBase64, signal){
+  const prompt = `This image shows a single checkbox row from a maintenance report. 
+It contains two checkboxes: one for "OK" and one for "Not OK". 
+Look carefully at which checkbox has a checkmark/tick inside it.
+Return ONLY one of these two values, nothing else:
+OK
+NOT_OK`;
+  try{
+    const data = await llmCall({model:LLM_MODEL,messages:[{role:'user',content:[{type:'text',text:prompt},{type:'image_url',image_url:{url:stripBase64}}]}],temperature:0}, signal);
+    const answer=(data.choices?.[0]?.message?.content||'').trim().toUpperCase();
+    return answer.includes('NOT_OK')?'NOT_OK':'OK';
+  }catch(e){
+    if(e.message==='Job aborted') throw e;
+    return 'OK';
+  }}
+function dedupeItems(items){
+  const seen=new Map();
+  items.forEach(item=>{
+    if(!item.desc)return;
+    const key=item.num+'|'+item.desc.trim().replace(/[\u200c\u200b\u200e\u200f]/g,'').replace(/\s+/g,'').replace(/[.,،;؛]/g,'');
+    if(!seen.has(key))seen.set(key,item);
+  });
+  return Array.from(seen.values()).sort((a,b)=>a.num-b.num);
+}
+
+async function extractItemsWithBatching(tasks, isEnglish=false, signal=null){
+  const CHUNK_SIZE=5; const OVERLAP=1; let allItems=[];
+  for(let i=0;i<tasks.length;i+=CHUNK_SIZE-OVERLAP){
+    if(signal && signal.aborted) throw new Error('Job aborted');
+    const batch=tasks.slice(i,i+CHUNK_SIZE);
+    if(!batch.length) break;
+    const text=batch.map(t=>`${t.num}. ${t.desc}\nNot OK`).join('\n');
+    const results=await callLLMExtract(text, isEnglish, signal);
+    if(!results.length){allItems.push(...batch.map(t=>({num:t.num,desc:t.desc,result:'NOT_OK'})));continue;}
+    allItems.push(...results);
+  }
+  return dedupeItems(allItems);
+}
+async function callLLMExtract(textChunk, isEnglish=false, signal=null){
+    const prompt = isEnglish
+      ? `Extract numbered maintenance tasks from this English text. Each item starts with a number like "1.", "2.", etc.\nThe same description may appear 2-5 times repeated — pick it ONCE only.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete clean description for that number, NO repetition inside desc\n- result is always NOT_OK\n- One entry per number, never duplicate the same number\n- If the same sentence appears multiple times inside one item's text, include it only once\n- Ignore lines without a number prefix\n- Ignore lines containing only "battery wo falt darad" or "Not OK" or "OK"\nRAW TEXT:\n${textChunk}`  
+: `The following text is raw Persian text extracted from a PDF. Due to PDF encoding issues, Persian words are broken into separate letters with spaces between them, and word order may be reversed.\nCRITICAL: Do NOT translate. Keep original Persian words.\nSTEP 1 — For each Persian word: remove spaces between letters and join them into one word. Example: " ﺍﻃﻤیﻨﺎﻥ" becomes "اطمینان".\nSTEP 2 — If the sentence reads backwards, reverse the word order.\nSTEP 3 — Extract each unique numbered maintenance task.\nSTEP 4 — Remove duplicate sentences.\nReturn ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"fixed persian description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do NOT mix text from different task numbers.\n- One entry per task number only.\n\nRAW TEXT:\n${textChunk}`;
+
+  try{
+    const data = await llmCall({model:LLM_MODEL, messages:[{role:'user',content:prompt}], temperature:0.0}, signal);
+    const raw = data.choices?.[0]?.message?.content || '';
+    const match = raw.match(/\[[\s\S]*\]/);
+    return match ? JSON.parse(match[0]) : [];
+  } catch(e) {
+    if (e.message === 'Job aborted') throw e;
+    return [];
+  }
+}
+// async function callLLMExtract(textChunk, isEnglish=false){
+//     const prompt = isEnglish
+//       ? `Extract numbered maintenance tasks from this English text. Each item starts with a number like "1.", "2.", etc.\nThe same description may appear 2-5 times repeated — pick it ONCE only.\nReturn ONLY a JSON array, no markdown:\n[{"num":1,"desc":"full task description","result":"NOT_OK"}]\nRules:\n- num = the leading integer\n- desc = the complete clean description for that number, NO repetition inside desc\n- result is always NOT_OK\n- One entry per number, never duplicate the same number\n- If the same sentence appears multiple times inside one item's text, include it only once\n- Ignore lines without a number prefix\n- Ignore lines containing only "battery wo falt darad" or "Not OK" or "OK"\nRAW TEXT:\n${textChunk}`  
+//     : `The following text is raw extraction from a PDF maintenance report. It may be in Persian or English.\nTASK:\n1. If Persian: fix character shaping and joining.\n2. If English: fix any broken words.\n3. Extract each unique maintenance task description cleanly.\n4. Return ONLY a JSON array — no markdown, no preamble.\n\nFormat: [{"num":1,"desc":"clean task description","result":"NOT_OK"}]\n\nRules:\n- Ignore header lines (Site ID, Contractor, Region, Task ID, etc.)\n- Do not duplicate sentences\n\nRAW TEXT:\n${textChunk}`;
+//   try{
+//     const res=await fetch(LLM_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:LLM_MODEL,messages:[{role:'user',content:prompt}],temperature:0.0})});
+//     if(!res.ok)return[];
+//     const data=await res.json();const raw=data.choices?.[0]?.message?.content||'';
+//     const match=raw.match(/\[[\s\S]*\]/);return match?JSON.parse(match[0]):[];
+//   }catch{return[];}
+// }
+function normalizeForCompare(str) {
+  return str
+    .replace(/[\u200c\u200b\u200e\u200f\u00ad]/g, '')
+    .replace(/[\u064b-\u065f]/g, '')
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+async function cleanConsecutiveTasks(items) {
+  if (items.length < 2) return items;
+  const cleaned = items.map(it => ({...it}));
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const curr = cleaned[i];
+    if (!curr.desc || curr.desc.length < 15) continue;
+const currShort = normalizeForCompare(curr.desc);
+
+    // Check both neighbours: prev (i-1) and next (i+1)
+    const neighbours = [];
+    if (i > 0 && cleaned[i-1].desc)                       neighbours.push(cleaned[i-1]);
+    if (i < cleaned.length-1 && cleaned[i+1].desc)        neighbours.push(cleaned[i+1]);
+
+    let bleedNeighbour = null;
+    for (const nb of neighbours) {
+      const nbShort = normalizeForCompare(nb.desc);
+      if (nbShort.length < 15) continue;
+      const sampleStart = nbShort.substring(0, Math.min(40, nbShort.length));
+      const sampleEnd   = nbShort.substring(Math.max(0, nbShort.length - 40));
+      if (currShort.includes(sampleStart) || currShort.includes(sampleEnd)) {
+        bleedNeighbour = nb;
+        break;
+      }
+    }
+
+    if (!bleedNeighbour) continue;
+
+    // Ask LLM to remove the bleed text
+    try {
+      const prompt = `You are cleaning text extracted from a Persian/English PDF maintenance report.
+Task ${curr.num} below incorrectly contains text that belongs to task ${bleedNeighbour.num}.
+Remove ONLY the part from task ${bleedNeighbour.num} that has bled into task ${curr.num}.
+Keep task ${curr.num} own description fully intact.
+
+Task ${curr.num} (dirty — contains bleed-in from task ${bleedNeighbour.num}):
+${curr.desc}
+
+Task ${bleedNeighbour.num} reference text (remove this from task ${curr.num}):
+${bleedNeighbour.desc}
+
+Return ONLY valid JSON, no markdown:
+{"num":${curr.num},"desc":"cleaned text of task ${curr.num} only"}`;
+
+      const res = await fetch(LLM_URL, {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({model:LLM_MODEL, messages:[{role:'user',content:prompt}], temperature:0})});
+      if (!res.ok) continue;
+      const data = await res.json();
+      const raw  = data.choices?.[0]?.message?.content || '';
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) {
+        const r = JSON.parse(m[0]);
+        if (r.desc && r.desc.length > 5) cleaned[i].desc = r.desc;
+      }
+    } catch(e) { /* keep original on failure */ }
+  }
+  return cleaned;
+}
+
+async function fetchImageAsBase64(url){
+  try{
+    const resp=await fetch(url);if(!resp.ok)return null;
+    const blob=await resp.blob();
+    return await new Promise(resolve=>{
+      const img=new Image();
+      img.onload=()=>{
+        const canvas=document.createElement('canvas');
+        const MAX_W=1000;const scale=Math.min(1,MAX_W/img.width);
+        canvas.width=img.width*scale;canvas.height=img.height*scale;
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        resolve(canvas.toDataURL('image/jpeg',0.7));
+      };
+      img.src=URL.createObjectURL(blob);
+    });
+  }catch{return null;}
+}
+
+async function runValidation(parsedItems,itemPhotoMap,parsedHeader,siteInfo,onProgress, jobIdx){
+  const results=[];
+  const siteLat=siteInfo?.lat??null,siteLon=siteInfo?.lon??null;
+  const reportDate=parsedHeader.reportDate||'';
+  const total=parsedItems.length;
+
+  const DATE_TOL = window.APP_CONFIG.DATE_TOLERANCE_DAYS;
+  const GPS_RADIUS = window.APP_CONFIG.GPS_RADIUS_METERS;
+
+  for(let i=0;i<total;i++){
+    if (jobIdx !== undefined) await checkJobPause(jobIdx);
+    const item=parsedItems[i];const photos=itemPhotoMap[item.num]||[];
+    const rule=TASK_RULES?.[parsedHeader.taskCategory]?.[parsedHeader.taskSubcategory]?.[item.num]??null;
+    onProgress(i+1,total);
+    if(!photos.length){results.push({row:item.num,verdict:'NO_EVIDENCE',causes:[],explanation:`No photos in folder ${item.num}`,metaList:[]});continue;}
+    const metaList=await Promise.all(photos.map(p=>extractImageMeta(p,item.num,parsedHeader.taskId)));
+    const reportDateOnly=reportDate.match(/(\d{4}-\d{2}-\d{2})/)?.[1]||'';
+    for(const m of metaList){
+      if(m.date){const diffDays=Math.abs(new Date(m.date)-new Date(reportDateOnly))/86400000;m.dateOk=diffDays<=DATE_TOL;m.dateLabel=m.dateOk?`✓ ${m.date}`:`✗ ${m.date}`;}
+      else{m.dateOk=false;m.dateLabel='✗ No JSON';}
+      if(siteLat!=null&&m.lat!=null){m.dist=Math.round(haversine(siteLat,siteLon,m.lat,m.lon));m.gpsOk=m.dist<=GPS_RADIUS;m.gpsLabel=m.gpsOk?`✓ On-site (${m.dist}m)`:`✗ Off-site (${m.dist}m)`;}
+      else{m.dist=null;m.gpsOk=false;m.gpsLabel='✗ GPS missing';}
+    }
+    const systemCauses=[];
+    for(const m of metaList){
+      if(!m.dateOk)systemCauses.push('IMAGE_DATE_MISMATCH');
+      if(m.gpsOk===false)systemCauses.push(m.lat==null?'IMAGE_GPS_MISSING':'IMAGE_GPS_MISMATCH');
+    }
+    const metaSummary=metaList.map(m=>`  - ${m.name}: date=${m.dateLabel}, GPS=${m.lat!=null?`${m.lat},${m.lon}`:'not found'}(${m.gpsLabel})`).join('\n');
+    try{
+      const content=[
+        {type:'text',text:buildValidationPrompt(item,photos.length,reportDate,siteLat,siteLon,metaSummary,rule,parsedHeader)},
+        ...photos.map(p=>({type:'image_url',image_url:{url:p.base64}}))
+      ];
+      const raw=await callLLM(content, jobControllers[jobIdx]?.signal);
+      const match=raw.match(/\{[\s\S]*\}/);if(!match)throw new Error('No JSON in response');
+      const llmResult=JSON.parse(match[0]);
+      if(llmResult.verdict==='NO_EVIDENCE'&&photos.length>0)llmResult.verdict='DISPUTED';
+      llmResult.causes=[...new Set([...systemCauses,...(llmResult.causes||[])])];
+      results.push({...llmResult,photoCount:photos.length,metaList,photos});
+    }catch(err){
+      results.push({row:item.num,verdict:'NO_EVIDENCE',causes:[],explanation:`Validation error: ${err.message}`,metaList});
+    }
+  }
+  return results;
+}
+
+function buildValidationPrompt(item,photoCount,reportDate,siteLat,siteLon,metaSummary,rule,parsedHeader){
+  const ruleText=rule?`EXPECTED CONDITION: ${rule.expected||'-'}\nCHECKPOINTS:\n${(rule.checkpoints||[]).map(c=>'- '+c).join('\n')}\nFAIL CONDITIONS:\n${(rule.fail_if||[]).map(f=>'- '+f).join('\n')}`:'No additional rules provided.';
+  return `You are an expert AI validator for Irancell PM (Preventive Maintenance) reports.
+TASK: Validate ONE checklist item using ONLY its dedicated site photos.
+
+REPORT:
+  Task ID:     ${parsedHeader.taskId||'?'}
+  Site ID:     ${parsedHeader.siteId||'?'}
+  Report Date: ${reportDate}
+  Site GPS:    ${siteLat?`${siteLat}, ${siteLon}`:'not registered'}
+
+ITEM TO VALIDATE:
+  Row: ${item.num} | Description: ${item.desc} | Reported: ${item.result||'NO_RESULT'} | Photos: ${photoCount}
+
+ADDITIONAL VALIDATION RULES:
+${ruleText}
+
+CRITICAL DATA for latitude and longitude (TRUST ONLY THIS):
+  ${metaSummary}
+
+IMPORTANT: Date and GPS validation are already handled by the system.
+CRITICAL:DO NOT analyze dates visible inside images, timestamps, watermarks, GPS text, or coordinates.
+Only analyze: whether the image is relevant to the maintenance condition, whether the maintenance condition matches the reported status, whether the photo quality is sufficient.
+
+Determine:
+1. VERDICT: "CONFIRMED" | "DISPUTED" | "NO_EVIDENCE"
+2. CAUSES (only applicable): "IRRELEVANT_IMAGE" | "MARKED_OK_BUT_DEFECT" | "MARKED_NOTOK_BUT_FINE" | "PHOTO_QUALITY"
+3. EXPLANATION: 1-2 sentences in persian when task written in persian and english when task written in english.
+
+Return ONLY valid JSON (no markdown):
+{"row":${item.num},"verdict":"CONFIRMED","causes":[],"explanation":"…"}`;
+}
+
+async function extractImageMeta(img,itemNum,taskId){
+  const jsonUrl=`${MINIO_BASE}/photos/${taskId}/${itemNum}/${img.name.replace(/\.[^/.]+$/,'.json')}`;
+  try{
+    const response=await fetch(jsonUrl);let text=await response.text();
+    text=text.replace(/,\s*([\]}])/g,'$1').trim();
+    const data=JSON.parse(text);
+    return {name:img.name,date:data.date||data.date_time||null,lat:parseFloat(data.lat||data.latitude)||null,lon:parseFloat(data.lng||data.longitude)||null};
+  }catch{return{name:img.name,date:null,lat:null,lon:null};}
+}
+
+/* ══ MODAL ══ */
+function openModal(idx) {
+  openModalJobIdx = idx;
+  const job = jobs[idx];
+  renderModalContent(job.parsedHeader, job.parsedItems, job.results, job.taskId, 'modalTitle','modalVerdict','modalStats','modalHeaderInfo','modalBody');
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function renderModalContent(h, parsedItems, results, titleText, titleId, verdictId, statsId, headerInfoId, bodyId) {
+  const confirmed=results.filter(r=>r.verdict==='CONFIRMED').length;
+  const disputed=results.filter(r=>r.verdict==='DISPUTED').length;
+  const total=results.length;
+  const aiRate=total>0?Math.round(confirmed/total*100):0;
+  const repOk=(parsedItems||[]).filter(i=>(i.result||'').toUpperCase()==='OK').length;
+  const repNotOk=(parsedItems||[]).filter(i=>(i.result||'').toUpperCase()==='NOT_OK'||(i.result||'').toUpperCase()==='NOT OK').length;
+  const repTotal=(parsedItems||[]).filter(i=>i.result).length||total;
+  const repRate=repTotal>0?Math.round(repOk/repTotal*100):0;
+  let matches=0;
+  results.forEach(r=>{
+    const item=(parsedItems||[]).find(i=>i.num===r.row)||{};
+    const pdfOk=(item.result||'').toUpperCase()==='OK';
+    const aiConf=r.verdict==='CONFIRMED';
+    if(r.verdict!=='NO_EVIDENCE'&&((pdfOk&&aiConf)||(!pdfOk&&!aiConf)))matches++;
+  });
+  const evidenceItems=results.filter(r=>r.verdict!=='NO_EVIDENCE').length;
+  const acceptRate=evidenceItems>0?Math.round(matches/evidenceItems*100):0;
+  const aiColor=aiRate>=80?'var(--green)':aiRate>=50?'#d4a017':'var(--red)';
+  const repColor=repRate>=80?'var(--green)':repRate>=50?'#d4a017':'var(--red)';
+  const accColor=acceptRate>=80?'var(--green)':acceptRate>=50?'#d4a017':'var(--red)';
+  document.getElementById(titleId).textContent='Report — '+(titleText||'');
+  const badge=document.getElementById(verdictId);
+  badge.className='verdict-badge '+(disputed===0?'vb-valid':'vb-invalid');
+  badge.textContent=disputed===0?'✓ Validated':'✗ Disputed';
+  document.getElementById(statsId).innerHTML=`
+    <table class="modal-stats-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Rate</th>
+          <th>✓ Confirmed / OK</th>
+          <th>✗ Disputed / Not OK</th>
+          <th>Total Items</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>AI Assessment</td>
+          <td><span class="mstat-rate" style="color:${aiColor}">${aiRate}%</span></td>
+          <td><span class="mstat-count green">${confirmed}</span></td>
+          <td><span class="mstat-count red">${disputed}</span></td>
+          <td><span class="mstat-count">${total}</span></td>
+        </tr>
+        <tr>
+          <td>Field Report</td>
+          <td><span class="mstat-rate" style="color:${repColor}">${repRate}%</span></td>
+          <td><span class="mstat-count green">${repOk}</span></td>
+          <td><span class="mstat-count red">${repNotOk}</span></td>
+          <td><span class="mstat-count">${repTotal}</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="acceptance-row">
+      <div class="acceptance-label">Acceptance Rate</div>
+      <div class="acceptance-val" style="color:${accColor}">${acceptRate}%</div>
+      <div style="font-size:11px;color:var(--gray);font-family:var(--mono)">${matches} of ${evidenceItems} evaluated items — AI assessment and field report are in agreement</div>
+    </div>`;
+  document.getElementById(headerInfoId).innerHTML=`
+    <div class="hinfo-item"><div class="hinfo-label">Task ID</div><div class="hinfo-value">${escHtml(h.taskId||'-')}</div></div>
+    <div class="hinfo-item"><div class="hinfo-label">Site ID</div><div class="hinfo-value">${escHtml(h.siteId||'-')}</div></div>
+    <div class="hinfo-item"><div class="hinfo-label">Task Category</div><div class="hinfo-value">${escHtml(h.taskCategory||'-')}</div></div>
+    <div class="hinfo-item"><div class="hinfo-label">Task Subcategory</div><div class="hinfo-value">${escHtml(h.taskSubcategory||'-')}</div></div>
+    <div class="hinfo-item"><div class="hinfo-label">Report Date</div><div class="hinfo-value">${escHtml(h.reportDate||'-')}</div></div>
+    <div class="hinfo-item"><div class="hinfo-label">Report FME</div><div class="hinfo-value">${escHtml(h.fmeName||'-')}</div></div>`;
+  const causeLabels={IMAGE_DATE_MISMATCH:'Date mismatch',IMAGE_GPS_MISMATCH:'GPS mismatch',IMAGE_GPS_MISSING:'GPS missing',IRRELEVANT_IMAGE:'Irrelevant image',MARKED_OK_BUT_DEFECT:'Marked OK — defect visible',MARKED_NOTOK_BUT_FINE:'Marked Not OK — looks fine',PHOTO_QUALITY:'Poor photo quality'};
+  document.getElementById(bodyId).innerHTML=results.map(r=>{
+    const item=parsedItems.find(i=>i.num===r.row)||{};
+    const rowPhotos = r.photos || [];
+    // Store photos in global registry keyed by a unique ID so onclick can retrieve them safely
+    const pgKey = 'pg_' + r.row + '_' + Math.random().toString(36).slice(2);
+    window._lbStore = window._lbStore || {};
+    window._lbStore[pgKey] = rowPhotos;
+    const photoChecksHtml=!(r.metaList?.length)?`<span style="color:var(--gray);font-size:11px">no photos</span>`:(()=>{
+      const thumbsHtml = rowPhotos.length
+        ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">`
+          + rowPhotos.map((p,pi)=>
+            `<img class="thumb-img" src="${p.base64}" alt="${escHtml(p.name)}" title="Click to view: ${escHtml(p.name)}"
+              onclick="openLightbox(window._lbStore['${pgKey}'],${pi})"/>`
+          ).join('')
+          + `</div>`
+        : '';
+      const metaHtml = r.metaList.map(m=>`
+        <div style="margin-bottom:4px;padding:4px 7px;background:var(--surface);border-radius:6px;border:0.5px solid var(--border)">
+          <div style="font-size:10px;color:var(--gray);margin-bottom:2px;font-weight:500;font-family:var(--mono)">${escHtml(m.name)}</div>
+          <div>
+            <span class="meta-pill ${m.dateOk===true?'meta-ok':m.dateOk===false?'meta-fail':'meta-na'}">${m.dateOk===true?'✓':m.dateOk===false?'✗':'?'} ${escHtml(m.dateLabel||'')}</span>
+            <span class="meta-pill ${m.gpsOk===true?'meta-ok':m.gpsOk===false?'meta-fail':'meta-na'}">${m.gpsOk===true?'✓':m.gpsOk===false?'✗':'?'} ${escHtml(m.gpsLabel||'')}</span>
+          </div>
+        </div>`).join('');
+      return thumbsHtml + metaHtml;
+    })();
+    const causesHtml=(r.causes||[]).map(c=>`<span class="cause-tag">${causeLabels[c]||c}</span>`).join('');
+    let statusMatch='—',statusClass='meta-na';
+    const pdfOk=(item.result||'').toUpperCase()==='OK';
+    const aiConfirmed=r.verdict==='CONFIRMED';
+    if(r.verdict!=='NO_EVIDENCE'){
+      const matched=(pdfOk&&aiConfirmed)||(!pdfOk&&!aiConfirmed);
+      statusMatch=matched?'✓ Correct':'✗ Incorrect';
+      statusClass=matched?'meta-ok':'meta-fail';
+    }
+    const vclass=r.verdict==='CONFIRMED'?'vb-confirmed':r.verdict==='DISPUTED'?'vb-disputed':'vb-no-ev';
+    return `<tr>
+      <td style="color:var(--gray)">${r.row}</td>
+      <td style="font-size:11px;line-height:1.5;${/[\u0600-\u06FF]/.test(item.desc||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${escHtml(item.desc||'')}</td>
+      <td>${photoChecksHtml}</td>
+<td><span style="font-size:11px;font-family:var(--mono)">${escHtml((item.result||'').replace('_',' '))}</span></td>
+<td style="${/[\u0600-\u06FF]/.test(r.explanation||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${causesHtml?`<div style="margin-bottom:4px">${causesHtml}</div>`:''}<div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(r.explanation||'')}</div></td>
+      <td><span class="vbadge ${vclass}">${r.verdict}</span></td>
+      <td><span class="meta-pill ${statusClass}">${statusMatch}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function closeModal(){document.getElementById('modalOverlay').classList.remove('open');}
+
+document.getElementById('modalOverlay').addEventListener('click',e=>{
+  if(e.target===document.getElementById('modalOverlay'))closeModal();
+});
+
+/* ══ UTILITIES ══ */
+// Central LLM caller — all LLM requests go through here
+// Handles 429 retry with backoff, abort signal, CORS abort noise suppression
+async function llmCall(body, signal) {
+  const MAX_RETRIES = 6;
+  let delay = 3000;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (signal && signal.aborted) throw new Error('Job aborted');
+    try {
+      const auditBody = Object.assign({}, body, {
+        username: currentUser?.username,
+        job_id: body.job_id || activeAuditContext.job_id,
+        task_id: body.task_id || activeAuditContext.task_id,
+      });
+      const res = await fetch(LLM_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(auditBody),
+        signal
+      });
+      if (res.status === 429) {
+        const retryAfter = parseInt(res.headers.get('Retry-After') || '0') * 1000 || delay;
+        const waitTime = Math.max(retryAfter, delay);
+        console.log(`LLM 429 — waiting ${waitTime}ms before retry ${attempt+1}/${MAX_RETRIES}`);
+        await new Promise(r => setTimeout(r, waitTime));
+        delay = Math.min(delay * 2, 60000);
+        continue;
+      }
+      if (!res.ok) throw new Error(`LLM HTTP ${res.status}`);
+      return await res.json();
+    } catch(err) {
+      if (err.name === 'AbortError' || err.message === 'Job aborted') throw new Error('Job aborted');
+      if (attempt < MAX_RETRIES - 1) {
+        await new Promise(r => setTimeout(r, delay));
+        delay = Math.min(delay * 2, 60000);
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw new Error('LLM failed after retries');
+}
+
+async function callLLM(content, signal) {
+  const data = await llmCall({ model: LLM_MODEL, messages: [{ role: 'user', content }] }, signal);
+  if (!data.choices || !data.choices.length) throw new Error('Invalid LLM response');
+  return data.choices[0].message.content;
+}
+function haversine(lat1,lon1,lat2,lon2){
+  const R=6371000,φ1=lat1*Math.PI/180,φ2=lat2*Math.PI/180,Δφ=(lat2-lat1)*Math.PI/180,Δλ=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(Δφ/2)**2+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function escHtml(str){
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(str){
+  return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n]/g, ' ');
+}
+// async function loadTaskRules(){
+//   try{TASK_RULES=await(await fetch('task_rules.json')).json();}catch{TASK_RULES={};}
+// }
+
+/* ══ LIGHTBOX ══ */
+let lbImages = [];
+let lbIndex  = 0;
+
+function openLightbox(images, startIdx) {
+  lbImages = images;
+  lbIndex  = startIdx;
+  lbShow();
+  document.getElementById('lbOverlay').classList.add('open');
+  document.addEventListener('keydown', lbKeyHandler);
+}
+
+function closeLightbox() {
+  document.getElementById('lbOverlay').classList.remove('open');
+  document.removeEventListener('keydown', lbKeyHandler);
+}
+
+function lbBgClick(e) {
+  if (e.target === document.getElementById('lbOverlay')) closeLightbox();
+}
+
+function lbNav(dir) {
+  lbIndex = (lbIndex + dir + lbImages.length) % lbImages.length;
+  lbShow();
+}
+
+function lbShow() {
+  const img = lbImages[lbIndex];
+  document.getElementById('lbImg').src = img.base64;
+  document.getElementById('lbCounter').textContent = (lbIndex + 1) + ' / ' + lbImages.length;
+  document.getElementById('lbFilename').textContent = img.name;
+  // hide nav arrows if only 1 image
+  const btns = document.querySelectorAll('.lb-btn');
+  btns.forEach(b => b.style.display = lbImages.length > 1 ? '' : 'none');
+}
+
+function lbKeyHandler(e) {
+  if (e.key === 'ArrowRight') lbNav(1);
+  if (e.key === 'ArrowLeft')  lbNav(-1);
+  if (e.key === 'Escape')     closeLightbox();
+}
+
+function showDupModal(filename) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('dupModalOverlay');
+    document.getElementById('dupModalMsg').innerHTML =
+      `The file <strong>${escHtml(filename)}</strong> already exists in the queue. ` +
+      `Do you want to replace it? The existing report (if any) will be permanently deleted ` +
+      `and this file will be re-added as waiting.`;
+    overlay.style.display = 'flex';
+
+    const btnReplace = document.getElementById('dupModalReplace');
+    const btnCancel  = document.getElementById('dupModalCancel');
+
+    const cleanup = () => {
+      overlay.style.display = 'none';
+      btnReplace.removeEventListener('click', onReplace);
+      btnCancel.removeEventListener('click', onCancel);
+    };
+    const onReplace = () => { cleanup(); resolve(true);  };
+    const onCancel  = () => { cleanup(); resolve(false); };
+
+    btnReplace.addEventListener('click', onReplace);
+    btnCancel.addEventListener('click', onCancel);
+  });
+}
+
+async function handleFiles(newFiles) {
+  const pdfs = Array.from(newFiles).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+  if (!pdfs.length) return;
+
+  // Check each file for duplicates and resolve sequentially
+  const toAdd = [];
+  for (const f of pdfs) {
+    const existingIdx = jobs.findIndex(j => j.file && j.file.name === f.name);
+    if (existingIdx !== -1) {
+      const replace = await showDupModal(f.name);
+      if (!replace) continue; // Skip this file
+
+      // Remove existing job from queue
+      const oldJob = jobs[existingIdx];
+      jobs.splice(existingIdx, 1);
+
+      // Clean up backend records for the replaced file
+      if (currentUser) {
+        const _user = currentUser;
+        try {
+          await fetch(window.APP_CONFIG.BACKEND_URL + '/api/files/replace', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ username: _user.username, filename: f.name })
+          });
+          await idbDelete(`pdf_${_user.username}_${f.name}`).catch(() => {});
+        } catch(e) { console.error('Replace cleanup failed:', e); }
+      }
+    }
+    toAdd.push(f);
+  }
+
+  if (!toAdd.length) return;
+
+  const newJobs = toAdd.map(f => ({
+    file: f,
+    taskId: f.name.replace(/\.pdf$/i, ''),
+    status: 'pending',
+    pct: 0,
+    barLabel: 'Waiting…',
+    confirmation: null,
+    results: [],
+    parsedItems: [],
+    parsedHeader: {},
+    paused: false
+  }));
+
+  jobs = jobs.concat(newJobs);
+
+  document.getElementById('dirPath').textContent = `${jobs.length} PDF file${jobs.length !== 1 ? 's' : ''} loaded`;
+  document.getElementById('dirPath').classList.remove('empty');
+  document.getElementById('summaryRow').style.display = 'grid';
+
+  renderJobsTable();
+  updateSummary();
+  updateGlobalBtns();
+
+  sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').textContent);
+  if (!currentUser) return;
+  const _user = currentUser;
+  (async () => {
+    try {
+      for (const f of toAdd) {
+        const storable = await fileToStorable(f);
+        await idbSave(`pdf_${_user.username}_${f.name}`, storable);
+
+        const formData = new FormData();
+        formData.append('file', f);
+        formData.append('username', _user.username);
+        await fetch(window.APP_CONFIG.BACKEND_URL + '/api/pdfs/upload', {
+          method: 'POST',
+          body: formData
+        });
+      }
+      await saveUserFiles();
+    } catch(e) { console.error('Save error:', e); }
+  })();
+}
+
+function clearFolder() {
+  if (!currentUser) return;
+
+  // Delete every file from backend and IndexedDB before clearing UI
+  const filesToDelete = jobs.map(j => j.file.name);
+
+filesToDelete.forEach(name => {
+    fetch(
+      window.APP_CONFIG.BACKEND_URL +
+      `/api/pdfs/delete?username=${encodeURIComponent(currentUser.username)}&filename=${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    ).catch(e => console.error('Backend delete failed:', e));
+
+    idbDelete(`pdf_${currentUser.username}_${name}`).catch(() => {});
+  });
+
+  deleteAllUserFiles(currentUser.username).catch(() => {});
+
+  // Clear UI
+  jobs = [];
+  document.getElementById('dirPath').textContent = 'No folder selected — click "Select Folder" to begin';
+  document.getElementById('dirPath').classList.add('empty');
+  document.getElementById('summaryRow').style.display = 'none';
+  sessionStorage.removeItem('lastFolderLabel');
+  sessionStorage.removeItem('lastFileNames');
+  document.getElementById('folderInput').value = '';
+  document.getElementById('fileInput').value = '';
+  renderJobsTable();
+  updateSummary();
+  updateGlobalBtns();
+}
+function removeJob(idx) {
+  if (jobs[idx].status === 'running') return;
+  const removedName = jobs[idx].file.name;
+  jobs.splice(idx, 1);
+
+  if (jobs.length === 0) {
+    document.getElementById('dirPath').textContent = 'No folder selected — click "Select Folder" to begin';
+    document.getElementById('dirPath').classList.add('empty');
+    document.getElementById('summaryRow').style.display = 'none';
+  } else {
+    document.getElementById('dirPath').textContent = `${jobs.length} PDF file${jobs.length !== 1 ? 's' : ''} loaded`;
+  }
+  renderJobsTable();
+  updateSummary();
+  updateGlobalBtns();
+
+  if (!currentUser) return;
+
+  fetch(
+    window.APP_CONFIG.BACKEND_URL +
+    `/api/pdfs/delete?username=${encodeURIComponent(currentUser.username)}&filename=${encodeURIComponent(removedName)}`,
+    { method: 'DELETE' }
+  ).catch(e => console.error('Backend PDF delete failed:', e));
+
+  deleteUserFile(currentUser.username, removedName).catch(() => {});
+  idbDelete(`pdf_${currentUser.username}_${removedName}`).catch(() => {});
+}
+document.getElementById('folderInput').addEventListener('change', e => {
+  handleFiles(e.target.files);
+  e.target.value = '';
+});
+document.getElementById('fileInput').addEventListener('change', e => {
+  handleFiles(e.target.files);
+  e.target.value = '';
+});
+/* ══════════════════════════════════════════════
+   TASK RULES ADMIN
+══════════════════════════════════════════════ */
+async function loadTaskRules() {
+  const tbody = document.getElementById('taskRulesTableBody');
+  tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--gray);">Loading…</td></tr>';
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/task-rules?admin_username=${encodeURIComponent(currentUser.username)}`);
+    const rules = await res.json();
+    TASK_RULES = rules;
+    const rows = [];
+    for (const [cat, subs] of Object.entries(rules)) {
+      for (const [sub, tasks] of Object.entries(subs)) {
+        for (const [num, rule] of Object.entries(tasks)) {
+          rows.push({ cat, sub, num, rule });
+        }
+      }
+    }
+    window._taskRuleRows = rows;
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--gray);">No rules yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(({cat, sub, num, rule}, idx) => `
+      <tr>
+        <td>${escHtml(cat)}</td>
+        <td>${escHtml(sub)}</td>
+        <td style="text-align:center;">${escHtml(num)}</td>
+        <td style="font-size:12px;">${escHtml(rule.expected||'—')}</td>
+        <td style="text-align:center;">
+          <button class="btn-view" onclick="editRuleForm(${idx})">✎ Edit</button>
+          <button class="btn-delete" onclick="deleteTaskRule('${escAttr(cat)}','${escAttr(sub)}','${escAttr(num)}')">🗑</button>
+        </td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--red);">Failed to load rules.</td></tr>';
+  }
+}
+
+function editRuleForm(idx) {
+  const {cat, sub, num, rule} = window._taskRuleRows[idx];
+  document.getElementById('ruleCategory').value    = cat;
+  document.getElementById('ruleSubcategory').value = sub;
+  document.getElementById('ruleTaskNum').value     = num;
+  document.getElementById('ruleExpected').value    = rule.expected || '';
+  document.getElementById('ruleCheckpoints').value = (rule.checkpoints||[]).join('\n');
+  document.getElementById('ruleFailIf').value      = (rule.fail_if||[]).join('\n');
+}
+
+function clearRuleForm() {
+  ['ruleCategory','ruleSubcategory','ruleTaskNum','ruleExpected','ruleCheckpoints','ruleFailIf'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+}
+
+async function saveTaskRule() {
+  const cat    = document.getElementById('ruleCategory').value.trim();
+  const sub    = document.getElementById('ruleSubcategory').value.trim();
+  const num    = document.getElementById('ruleTaskNum').value.trim();
+  const exp    = document.getElementById('ruleExpected').value.trim();
+  const checks = document.getElementById('ruleCheckpoints').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const fails  = document.getElementById('ruleFailIf').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  if (!cat || !sub || !num) { showToast('⚠ Category, subcategory and task number are required'); return; }
+  const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/task-rules', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ admin_username: currentUser.username, taskCategory: cat, taskSubcategory: sub, taskNumber: num, expected: exp, checkpoints: checks, fail_if: fails })
+  });
+  const data = await res.json();
+  if (data.success) { showToast('✓ Rule saved'); clearRuleForm(); loadTaskRules(); }
+  else showToast('✗ Failed to save rule');
+}
+
+async function deleteTaskRule(cat, sub, num) {
+  if (!confirm(`Delete rule for ${cat} / ${sub} / Task ${num}?`)) return;
+  await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/task-rules?admin_username=${encodeURIComponent(currentUser.username)}&taskCategory=${encodeURIComponent(cat)}&taskSubcategory=${encodeURIComponent(sub)}&taskNumber=${encodeURIComponent(num)}`, { method: 'DELETE' });
+  showToast('🗑 Rule deleted');
+  loadTaskRules();
+}
+
+/* ══════════════════════════════════════════════
+   SITES ADMIN
+══════════════════════════════════════════════ */
+async function loadSites() {
+  const tbody = document.getElementById('sitesTableBody');
+  tbody.innerHTML = '<tr><td colspan="4" style="padding:30px;text-align:center;color:var(--gray);">Loading…</td></tr>';
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/sites?admin_username=${encodeURIComponent(currentUser.username)}`);
+    const sites = await res.json();
+    if (!sites.length) { tbody.innerHTML = '<tr><td colspan="4" style="padding:30px;text-align:center;color:var(--gray);">No sites yet.</td></tr>'; return; }
+    tbody.innerHTML = sites.map(s => `
+      <tr>
+        <td><strong>${escHtml(s.siteId)}</strong></td>
+        <td style="font-family:var(--mono)">${s.lat}</td>
+        <td style="font-family:var(--mono)">${s.lon}</td>
+        <td style="text-align:center;">
+          <button class="btn-view" onclick="editSiteForm('${escAttr(s.siteId)}',${s.lat},${s.lon})">✎ Edit</button>
+          <button class="btn-delete" onclick="deleteSite('${escAttr(s.siteId)}')">🗑</button>
+        </td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="4" style="padding:30px;text-align:center;color:var(--red);">Failed to load sites.</td></tr>';
+  }
+}
+
+function editSiteForm(siteId, lat, lon) {
+  document.getElementById('siteIdInput').value  = siteId;
+  document.getElementById('siteLatInput').value = lat;
+  document.getElementById('siteLonInput').value = lon;
+}
+
+async function saveSite() {
+  const siteId = document.getElementById('siteIdInput').value.trim();
+  const lat    = parseFloat(document.getElementById('siteLatInput').value);
+  const lon    = parseFloat(document.getElementById('siteLonInput').value);
+  if (!siteId || isNaN(lat) || isNaN(lon)) { showToast('⚠ Site ID, Lat and Lon are all required'); return; }
+  const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/sites', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ admin_username: currentUser.username, siteId, lat, lon })
+  });
+  const data = await res.json();
+  if (data.success) {
+    showToast('✓ Site saved');
+    document.getElementById('siteIdInput').value = document.getElementById('siteLatInput').value = document.getElementById('siteLonInput').value = '';
+    loadSites();
+  } else showToast('✗ Failed to save site');
+}
+
+async function deleteSite(siteId) {
+  if (!confirm(`Delete site ${siteId}?`)) return;
+  await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/sites?admin_username=${encodeURIComponent(currentUser.username)}&siteId=${encodeURIComponent(siteId)}`, { method: 'DELETE' });
+  showToast('🗑 Site deleted');
+  loadSites();
+}
+/* ══════════════════════════════════════════════
+   CSV IMPORT — TASK RULES
+══════════════════════════════════════════════ */
+async function importRulesCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById('rulesCSVStatus');
+  status.style.display = '';
+  status.style.color = 'var(--gray)';
+  status.textContent = 'Parsing CSV…';
+
+    const text = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsText(file, 'UTF-8');
+    });
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) { status.style.color='var(--red)'; status.textContent = '✗ CSV is empty or has no data rows.'; return; }
+
+  // Parse header to find column positions (case-insensitive)
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+  const col = h => headers.indexOf(h);
+  const iCat  = col('taskcategory'),  iSub = col('tasksubcategory'),
+        iNum  = col('tasknumber'),    iExp = col('expected'),
+        iChk  = col('checkpoints'),   iFail = col('fail_if');
+
+  if ([iCat, iSub, iNum].some(i => i === -1)) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ Missing required columns: taskCategory, taskSubcategory, taskNumber';
+    input.value = '';
+    return;
+  }
+
+  const rows = [];
+  const errors = [];
+  for (let i = 1; i < lines.length; i++) {
+    // Handle quoted fields with commas inside
+    const cols = parseCSVLine(lines[i]);
+    const cat = cols[iCat]?.trim();
+    const sub = cols[iSub]?.trim();
+    const num = cols[iNum]?.trim();
+    if (!cat || !sub || !num) { errors.push(`Row ${i+1}: missing category, subcategory or task number`); continue; }
+    rows.push({
+      taskCategory:    cat,
+      taskSubcategory: sub,
+      taskNumber:      num,
+      expected:        iExp  !== -1 ? (cols[iExp]||'').trim()  : '',
+      checkpoints:     iChk  !== -1 ? (cols[iChk]||'').split('|').map(s=>s.trim()).filter(Boolean) : [],
+      fail_if:         iFail !== -1 ? (cols[iFail]||'').split('|').map(s=>s.trim()).filter(Boolean) : []
+    });
+  }
+
+  if (!rows.length) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ No valid rows found. ' + errors.join('; ');
+    input.value = '';
+    return;
+  }
+
+  status.textContent = `Uploading ${rows.length} rules…`;
+  let ok = 0, fail = 0;
+  for (const row of rows) {
+    try {
+      const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/task-rules', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ admin_username: currentUser.username, ...row })
+      });
+      const data = await res.json();
+      data.success ? ok++ : fail++;
+    } catch { fail++; }
+  }
+
+  input.value = '';
+  status.style.color = fail === 0 ? 'var(--green)' : 'var(--red)';
+  status.textContent = `✓ ${ok} rules imported${fail ? `, ✗ ${fail} failed` : ''}.${errors.length ? ' Skipped: ' + errors.join('; ') : ''}`;
+  loadTaskRules();
+}
+
+/* ══════════════════════════════════════════════
+   CSV IMPORT — SITES
+══════════════════════════════════════════════ */
+async function importSitesCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById('sitesCSVStatus');
+  status.style.display = '';
+  status.style.color = 'var(--gray)';
+  status.textContent = 'Parsing CSV…';
+
+    const text = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsText(file, 'UTF-8');
+    });
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) { status.style.color='var(--red)'; status.textContent = '✗ CSV is empty or has no data rows.'; return; }
+
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+  const iId  = headers.indexOf('siteid');
+  const iLat = headers.indexOf('lat');
+  const iLon = headers.indexOf('lon');
+
+  if ([iId, iLat, iLon].some(i => i === -1)) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ Missing required columns: siteId, lat, lon';
+    input.value = '';
+    return;
+  }
+
+  const rows = [];
+  const errors = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i]);
+    const siteId = cols[iId]?.trim();
+    const lat    = parseFloat(cols[iLat]);
+    const lon    = parseFloat(cols[iLon]);
+    if (!siteId || isNaN(lat) || isNaN(lon)) { errors.push(`Row ${i+1}: invalid data`); continue; }
+    rows.push({ siteId, lat, lon });
+  }
+
+  if (!rows.length) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✗ No valid rows found. ' + errors.join('; ');
+    input.value = '';
+    return;
+  }
+
+  status.textContent = `Uploading ${rows.length} sites…`;
+  let ok = 0, fail = 0;
+  for (const row of rows) {
+    try {
+      const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/sites', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ admin_username: currentUser.username, ...row })
+      });
+      const data = await res.json();
+      data.success ? ok++ : fail++;
+    } catch { fail++; }
+  }
+
+  input.value = '';
+  status.style.color = fail === 0 ? 'var(--green)' : 'var(--red)';
+  status.textContent = `✓ ${ok} sites imported${fail ? `, ✗ ${fail} failed` : ''}.${errors.length ? ' Skipped: ' + errors.join('; ') : ''}`;
+  loadSites();
+}
+
+/* ── CSV line parser (handles quoted fields containing commas) ── */
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQuotes = !inQuotes; }
+    else if (ch === ',' && !inQuotes) { result.push(cur); cur = ''; }
+    else { cur += ch; }
+  }
+  result.push(cur);
+  return result;
+}
+</script>
+
+<!-- ══ DUPLICATE CONFIRM MODAL ══ -->
+<div id="dupModalOverlay">
+  <div class="dup-modal-box">
+    <div class="dup-modal-title">⚠ Duplicate File Detected</div>
+    <p id="dupModalMsg" class="dup-modal-msg"></p>
+    <div class="dup-modal-btns">
+      <button class="dup-btn-cancel" id="dupModalCancel">Cancel</button>
+      <button class="dup-btn-replace" id="dupModalReplace">Replace</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ LIGHTBOX ══ -->
+<div class="lb-overlay" id="lbOverlay" onclick="lbBgClick(event)">
+  <button class="lb-close" onclick="closeLightbox()">✕</button>
+  <div class="lb-img-wrap">
+    <button class="lb-btn lb-prev" onclick="lbNav(-1)">&#8249;</button>
+    <img class="lb-img" id="lbImg" src="" alt=""/>
+    <button class="lb-btn lb-next" onclick="lbNav(1)">&#8250;</button>
+  </div>
+  <div class="lb-counter" id="lbCounter"></div>
+  <div class="lb-filename" id="lbFilename"></div>
+</div>
+</body>
+</html>
