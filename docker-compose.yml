@@ -36,7 +36,7 @@ services:
       GPS_RADIUS_METERS: ${GPS_RADIUS_METERS:-300}
       DATE_TOLERANCE_DAYS: ${DATE_TOLERANCE_DAYS:-3}
     ports:
-      - "${FRONTEND_PORT:-80}:80"
+      - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       - backend
     restart: unless-stopped
