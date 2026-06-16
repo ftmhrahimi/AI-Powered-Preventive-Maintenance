@@ -233,9 +233,9 @@
 
     /* ══ MODAL ══ */
     .page-wrap{position:relative;}
-    .modal-overlay{display:none;position:absolute;top:0;left:0;right:0;min-height:100%;background:rgba(0,0,0,.45);z-index:100;padding:28px 16px;}
+    .modal-overlay{display:none;position:absolute;top:0;left:0;right:0;min-height:100%;background:rgba(0,0,0,.45);z-index:100;padding:12px 8px;}
     .modal-overlay.open{display:flex;align-items:flex-start;justify-content:center;}
-    .modal-box{background:var(--white);border-radius:14px;border:0.5px solid var(--border);width:100%;max-width:980px;overflow:hidden;}
+    .modal-box{background:var(--white);border-radius:14px;border:0.5px solid var(--border);width:100%;max-width:min(98vw,1400px);overflow:hidden;}
     .modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:0.5px solid var(--border);}
     .modal-header h2{font-size:15px;font-weight:600;color:#1a1a1a;font-family:var(--mono);}
     .modal-close{padding:6px 12px;background:var(--surface);border:0.5px solid var(--border);border-radius:7px;font-size:13px;cursor:pointer;color:#333;}
@@ -263,18 +263,15 @@
     .mstat-num.green{color:var(--green);}
     .mstat-num.red{color:var(--red);}
     .mstat-lbl{font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;font-family:var(--mono);}
-    .res-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;}
+    .res-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;}
     .res-table th{background:var(--surface);padding:9px 10px;text-align:left;font-weight:500;color:var(--gray);font-size:10px;text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border);}
     .res-table td{padding:9px 10px;border-bottom:0.5px solid var(--border);vertical-align:top;color:#2d3748;}
     .res-table tr:last-child td{border-bottom:none;}
     .res-table th:nth-child(1),.res-table td:nth-child(1){width:36px;}
-    .res-table th:nth-child(3),.res-table td:nth-child(3){width:120px;}
-    .res-table th:nth-child(4),.res-table td:nth-child(4){width:90px;}
-    .res-table th:nth-child(5),.res-table td:nth-child(5){width:120px;}
-    .res-table th:nth-child(6),.res-table td:nth-child(6){width:90px;}
-    .res-table th:nth-child(7),.res-table td:nth-child(7){width:110px;}
+    .res-table thead tr th{position:sticky;top:0;z-index:10;background:var(--surface,#f8f8f8);box-shadow:0 1px 0 var(--border,#e0e0e0);}
     .vbadge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:99px;font-size:10px;font-weight:600;}
     .vb-confirmed{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
+    .vb-tech-ok{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
     .vb-disputed{background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
     .vb-no-ev{background:var(--surface);color:var(--gray);border:0.5px solid var(--border);}
     .cause-tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;margin:1px;background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
@@ -497,7 +494,7 @@
         <div class="modal-body">
           <div class="modal-stats" id="modalStats"></div>
           <div id="modalHeaderInfo" class="header-info-box"></div>
-          <div style="overflow-x:auto;">
+          <div style="overflow-x:auto;overflow-y:auto;max-height:60vh;">
             <table class="res-table">
               <thead>
                 <tr>
@@ -609,7 +606,7 @@
         <div class="modal-body">
           <div class="modal-stats" id="histModalStats"></div>
           <div id="histModalHeaderInfo" class="header-info-box"></div>
-          <div style="overflow-x:auto;">
+          <div style="overflow-x:auto;overflow-y:auto;max-height:60vh;">
             <table class="res-table">
               <thead>
                 <tr>
@@ -818,7 +815,7 @@
         <div class="modal-body">
           <div class="modal-stats" id="adminModalStats"></div>
           <div id="adminModalHeaderInfo" class="header-info-box"></div>
-          <div style="overflow-x:auto;">
+          <div style="overflow-x:auto;overflow-y:auto;max-height:60vh;">
             <table class="res-table">
               <thead>
                 <tr>
@@ -2794,14 +2791,27 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
       return thumbsHtml + metaHtml;
     })();
     const verdictText=r.verdict==='CONFIRMED'?'OK':r.verdict==='DISPUTED'?'Not OK':'—';
-    const causePillsHtml=(r.causes||[]).map(c=>`<span class="cause-tag" style="display:inline-block;margin:2px 2px 0 0;">${causeLabels[c]||c}</span>`).join('');
+    const causePillsHtml=(r.causes||[]).map(c=>`<div style="margin-top:3px;"><span class="cause-tag">${causeLabels[c]||c}</span></div>`).join('');
+    const isTechOk=r.verdict==='DISPUTED'&&(r.causes||[]).every(c=>['IMAGE_DATE_MISMATCH','IMAGE_GPS_MISMATCH','IMAGE_GPS_MISSING'].includes(c))&&(r.causes||[]).length>0;
     return `<tr>
       <td style="color:var(--gray)">${r.row}</td>
       <td style="font-size:11px;line-height:1.5;${/[\u0600-\u06FF]/.test(item.desc||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${escHtml(item.desc||'')}</td>
       <td>${photoChecksHtml}</td>
 <td><span style="font-size:11px;font-family:var(--mono)">${escHtml((item.result||'').replace('_',' '))}</span></td>
 <td style="${/[\u0600-\u06FF]/.test(r.explanation||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}"><div style="font-size:11px;color:#2d3748;line-height:1.5">${escHtml(r.explanation||'')}</div></td>
-      <td style="white-space:nowrap"><div style="font-size:12px;font-weight:600;margin-bottom:4px">${verdictText}</div>${causePillsHtml?`<div>${causePillsHtml}</div>`:''}</td>
+      <td style="white-space:nowrap">
+  <div style="font-size:12px;font-weight:600;margin-bottom:4px">${verdictText}</div>
+  ${isTechOk ? `
+    <div style="margin-bottom:4px">
+      <span class="vbadge vb-tech-ok">Technically accurate</span>
+    </div>
+  ` : ''}
+  ${causePillsHtml ? `
+    <div style="display:flex;flex-direction:column;align-items:flex-start;">
+      ${causePillsHtml}
+    </div>
+  ` : ''}
+</td>
     </tr>`;
   }).join('');
 }
