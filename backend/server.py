@@ -141,12 +141,18 @@ def run_job(job_id, tmp_path):
     filename = job_meta.get("filename", "")
 
     with STOP_ALL_LOCK:
-        if STOP_ALL_FLAG:
-            with JOB_REGISTRY_LOCK:
+        stop_all_requested = STOP_ALL_FLAG
+
+    with JOB_REGISTRY_LOCK:
+        already_stopped = JOB_REGISTRY.get(job_id, {}).get("status") == "stopped"
+
+    if stop_all_requested or already_stopped:
+        with JOB_REGISTRY_LOCK:
+            if job_id in JOB_REGISTRY:
                 JOB_REGISTRY[job_id]["status"] = "stopped"
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-            return
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return
 
     with JOB_REGISTRY_LOCK:
         JOB_REGISTRY[job_id]["status"] = "running"
