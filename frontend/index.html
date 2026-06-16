@@ -2094,10 +2094,11 @@ async function runAll() {
 
   // Immediately mark ALL queued jobs as "running" in the UI (visual indicator)
   runAllQueue.forEach(idx => {
-    jobs[idx].aborted  = false;
-    jobs[idx].status   = 'running';
-    jobs[idx].pct      = 0;
-    jobs[idx].barLabel = 'Queued…';
+    jobs[idx].aborted       = false;
+    jobs[idx].stopRequested = false;
+    jobs[idx].status        = 'running';
+    jobs[idx].pct           = 0;
+    jobs[idx].barLabel      = 'Queued…';
   });
   renderJobsTable();
   updateGlobalBtns();
@@ -2168,6 +2169,7 @@ async function runSingle(idx) {
   await new Promise(r => setTimeout(r, 200));
   jobs[idx].aborted = false;
   jobs[idx].paused  = false;
+  jobs[idx].stopRequested = false;
   setJob(idx, { status: 'running', pct: 0, barLabel: 'Starting…' });
   try {
     await processJob(idx);
@@ -2183,6 +2185,7 @@ async function runSingle(idx) {
 function stopSingle(idx) {
   jobs[idx].aborted = true;
   jobs[idx].paused  = false;
+  jobs[idx].stopRequested = true;   // remember intent even if job_id isn't known yet
   if (jobControllers[idx]) { jobControllers[idx].abort(); delete jobControllers[idx]; }
   setJob(idx, { status: 'stopped', pct: 0, barLabel: 'Stopped' });
 
@@ -2191,6 +2194,8 @@ function stopSingle(idx) {
     fetch(window.APP_CONFIG.BACKEND_URL + '/stop-job/' + jobId, { method: 'POST' })
       .catch(e => console.warn('Stop-job backend call failed:', e));
   }
+  // If jobId isn't known yet (the /extract response hasn't returned), processJob
+  // will see stopRequested as soon as it learns the job_id and cancel it there.
 
   // Halt the Run All queue so NO further jobs auto-start after a manual stop.
   // Jobs that were queued but never dispatched are reset to 'pending' (they
@@ -2235,6 +2240,15 @@ async function processJob(idx) {
       const job_id = extractData.job_id;
       job.serverJobId = job_id;
       activeAuditContext = Object.assign({}, activeAuditContext, { job_id });
+
+      // The user may have pressed Stop while this /extract was still in flight.
+      // The job_id is only known now, so send the cancel signal here — otherwise
+      // the backend thread would keep uploading to MinIO with no way to stop it.
+      if (job.stopRequested || job.aborted) {
+        fetch(window.APP_CONFIG.BACKEND_URL + '/stop-job/' + job_id, { method: 'POST' })
+          .catch(e => console.warn('Stop-job backend call failed:', e));
+        throw new Error('Job aborted');
+      }
       let jobStatus = 'pending';
 
       // Start polling /job/<job_id>
@@ -2824,7 +2838,7 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
   <div style="font-size:12px;font-weight:600;margin-bottom:4px">${verdictText}</div>
   ${isTechOk ? `
     <div style="margin-bottom:4px">
-      <span class="vbadge vb-tech-ok">Technically accurate</span>
+      <span class="vbadge vb-tech-ok">Technically correct</span>
     </div>
   ` : ''}
   ${causePillsHtml ? `
