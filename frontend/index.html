@@ -1982,6 +1982,7 @@ async function syncJobStatus(job) {
 let runAllActive  = false;  // true while Run All loop is running
 let runAllAbort   = false;  // Bug 1: added missing declaration
 let runAllStopped = false;  // set to true by Stop to break the loop
+let runAllQueue   = [];     // indices not yet dispatched by Run All workers
 
 
 /* ── Table rendering ─────────────────────────────────────────────────── */
@@ -2084,15 +2085,15 @@ async function runAll() {
   runAllStopped = false;
 
   // Build queue of all eligible job indices BEFORE marking them
-  const queue = [];
+  runAllQueue = [];
   jobs.forEach((j, i) => {
     if (j.status === 'pending' || j.status === 'stopped' || j.status === 'error') {
-      queue.push(i);
+      runAllQueue.push(i);
     }
   });
 
   // Immediately mark ALL queued jobs as "running" in the UI (visual indicator)
-  queue.forEach(idx => {
+  runAllQueue.forEach(idx => {
     jobs[idx].aborted  = false;
     jobs[idx].status   = 'running';
     jobs[idx].pct      = 0;
@@ -2107,9 +2108,9 @@ async function runAll() {
   const runWorker = async () => {
     while (true) {
       if (runAllStopped) break;
-      if (queue.length === 0) break;
+      if (runAllQueue.length === 0) break;
 
-      const idx = queue.shift();
+      const idx = runAllQueue.shift();
       if (idx === undefined) break;
 
       // Skip if stopped externally between queueing and picking up
@@ -2189,6 +2190,20 @@ function stopSingle(idx) {
   if (jobId) {
     fetch(window.APP_CONFIG.BACKEND_URL + '/stop-job/' + jobId, { method: 'POST' })
       .catch(e => console.warn('Stop-job backend call failed:', e));
+  }
+
+  // Halt the Run All queue so NO further jobs auto-start after a manual stop.
+  // Jobs that were queued but never dispatched are reset to 'pending' (they
+  // show a ▶ Run button again). Jobs already running are left untouched — they
+  // keep going and must be stopped individually with their own Stop button.
+  if (runAllQueue.length) {
+    const pending = runAllQueue.splice(0);  // empties the shared queue
+    pending.forEach(qIdx => {
+      if (qIdx !== idx && jobs[qIdx] && jobs[qIdx].barLabel === 'Queued…') {
+        jobs[qIdx].aborted = true;  // stop the worker from picking it up
+        setJob(qIdx, { status: 'pending', pct: 0, barLabel: 'Ready' });
+      }
+    });
   }
 }
 function isEnglishPdf(fullText, filename) {
@@ -2809,7 +2824,7 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
   <div style="font-size:12px;font-weight:600;margin-bottom:4px">${verdictText}</div>
   ${isTechOk ? `
     <div style="margin-bottom:4px">
-      <span class="vbadge vb-tech-ok">Technically correct</span>
+      <span class="vbadge vb-tech-ok">Technically accurate</span>
     </div>
   ` : ''}
   ${causePillsHtml ? `
