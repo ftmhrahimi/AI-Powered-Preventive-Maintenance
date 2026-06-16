@@ -2184,6 +2184,12 @@ function stopSingle(idx) {
   jobs[idx].paused  = false;
   if (jobControllers[idx]) { jobControllers[idx].abort(); delete jobControllers[idx]; }
   setJob(idx, { status: 'stopped', pct: 0, barLabel: 'Stopped' });
+
+  const jobId = jobs[idx].serverJobId;
+  if (jobId) {
+    fetch(window.APP_CONFIG.BACKEND_URL + '/stop-job/' + jobId, { method: 'POST' })
+      .catch(e => console.warn('Stop-job backend call failed:', e));
+  }
 }
 function isEnglishPdf(fullText, filename) {
   // If text layer has Persian/Arabic chars it's Persian
