@@ -156,8 +156,16 @@ def run_job(job_id, tmp_path):
     log_event("JOB_STARTED", username=username, job_id=job_id,
               detail=filename, description=f"Extraction job started for: {filename}",
               status="running")
+
+    def stop_check():
+        with STOP_ALL_LOCK:
+            if STOP_ALL_FLAG:
+                return True
+        with JOB_REGISTRY_LOCK:
+            return JOB_REGISTRY.get(job_id, {}).get("status") == "stopped"
+
     try:
-        result = process_pdf(tmp_path)
+        result = process_pdf(tmp_path, stop_check=stop_check)
         with JOB_REGISTRY_LOCK:
             JOB_REGISTRY[job_id]["status"] = "done"
             JOB_REGISTRY[job_id]["result"] = result
@@ -166,6 +174,12 @@ def run_job(job_id, tmp_path):
         log_event("JOB_COMPLETED", username=username, job_id=job_id,
                   task_id=result, description=f"Extraction completed. Task ID: {result}",
                   status="success")
+    except InterruptedError:
+        with JOB_REGISTRY_LOCK:
+            JOB_REGISTRY[job_id]["status"] = "stopped"
+            JOB_REGISTRY[job_id]["progress_label"] = "Stopped"
+        log_event("JOB_STOPPED", username=username, job_id=job_id,
+                  description="Job stopped by user mid-extraction", status="stopped")
     except Exception as e:
         with JOB_REGISTRY_LOCK:
             JOB_REGISTRY[job_id]["status"] = "failed"
@@ -177,6 +191,7 @@ def run_job(job_id, tmp_path):
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
 
 def check_llm_server_health():
     # Attempt to ping the /health endpoint of the LLM server
@@ -594,7 +609,18 @@ def stop_all_endpoint():
               ip_address=request.remote_addr, status="info")
     return jsonify({"status": "stopped"})
 
-
+@app.route('/stop-job/<job_id>', methods=['POST', 'OPTIONS'])
+def stop_job_endpoint(job_id):
+    if request.method == 'OPTIONS':
+        return '', 204
+    with JOB_REGISTRY_LOCK:
+        job = JOB_REGISTRY.get(job_id)
+        if job and job['status'] in ('running', 'pending'):
+            job['status'] = 'stopped'
+    log_event("JOB_STOPPED", description=f"Job {job_id} stopped by user",
+              ip_address=request.remote_addr, status="stopped")
+    return jsonify({"status": "stopped"})
+    
 @app.route('/api/files/replace', methods=['POST', 'OPTIONS'])
 def replace_file():
     if request.method == 'OPTIONS':
