@@ -263,7 +263,8 @@ def cropper(image):
     return cropped
 
 
-def image_extractor(docs, images_path, ok_notok_data, prompt_path):
+def image_extractor(docs, images_path, ok_notok_data, prompt_path, stop_check=None):
+
 
     # os.makedirs(images_path, exist_ok=True)
 
@@ -312,6 +313,10 @@ def image_extractor(docs, images_path, ok_notok_data, prompt_path):
             index = inspection_counters[matched_inspection]
             filename_index = f"{index}"   # just the number, e.g. "1"
 
+            # ── Stop check ───────────────────────────────────────────
+            if stop_check and stop_check():
+                raise InterruptedError("Job stopped by user")
+
             extracted = docs.extract_image(xref)
             image_bytes = extracted["image"]
             image = Image.open(io.BytesIO(image_bytes))
@@ -341,7 +346,7 @@ def image_extractor(docs, images_path, ok_notok_data, prompt_path):
             last_marker = photo_markers[-1]
 
 
-def process_pdf(pdf_path):
+def process_pdf(pdf_path, stop_check=None):
 
     print("Processing:", pdf_path)
 
@@ -358,7 +363,8 @@ def process_pdf(pdf_path):
         docs=docs,
         images_path=dir_name,
         ok_notok_data=oknotok_data,
-        prompt_path=prompt_path
+        prompt_path=prompt_path,
+        stop_check=stop_check,       # ← add this line
     )
     print("Saved image:", pdf_path)
     return dir_name
