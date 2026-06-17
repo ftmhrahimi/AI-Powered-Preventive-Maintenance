@@ -72,6 +72,7 @@ def init_db():
     init_user_files_table()
     init_task_rules_table()
     init_sites_table()
+    init_server_runs_table()
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -413,5 +414,140 @@ def upsert_site(site_id, lat, lon):
 def delete_site(site_id):
     conn = get_db()
     conn.execute("DELETE FROM sites WHERE siteId=?", (site_id,))
+    conn.commit()
+    conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Server-side run queue
+#
+#  Lets a user request that their pending files be processed on the server by
+#  a headless-browser worker, so the work continues even after they close the
+#  browser / shut down their computer. State machine: pending → running →
+#  done | failed.
+# ──────────────────────────────────────────────────────────────────────────
+def init_server_runs_table():
+    conn = get_db()
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS server_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',  -- pending | running | done | failed
+            error TEXT,
+            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (username) REFERENCES users(username)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+
+def get_user_session(username):
+    """Return the minimal user object the frontend stores in its session
+    (localStorage['pm_session']), so the worker can log in as that user."""
+    if not username:
+        return None
+    conn = get_db()
+    user = conn.execute(
+        "SELECT username, name, is_admin FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+    conn.close()
+    if not user:
+        return None
+    return {"username": user['username'], "name": user['name'], "isAdmin": bool(user['is_admin'])}
+
+
+def enqueue_server_run(username):
+    """Queue a server-side run for this user. If one is already pending or
+    running, reuse it (idempotent) instead of stacking duplicates."""
+    conn = get_db()
+    try:
+        existing = conn.execute(
+            "SELECT id, status FROM server_runs WHERE username = ? "
+            "AND status IN ('pending','running') ORDER BY id DESC LIMIT 1",
+            (username,)
+        ).fetchone()
+        if existing:
+            return {"id": existing['id'], "status": existing['status'], "reused": True}
+        cur = conn.execute(
+            "INSERT INTO server_runs (username, status) VALUES (?, 'pending')",
+            (username,)
+        )
+        conn.commit()
+        return {"id": cur.lastrowid, "status": "pending", "reused": False}
+    finally:
+        conn.close()
+
+
+def get_latest_server_run(username):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id, status, error, updatedAt FROM server_runs "
+        "WHERE username = ? ORDER BY id DESC LIMIT 1",
+        (username,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def requeue_stale_running(max_age_seconds):
+    """Reset 'running' rows whose worker likely died (no update within the
+    cutoff) back to 'pending' so they get picked up again."""
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE server_runs SET status='pending', updatedAt=CURRENT_TIMESTAMP "
+            "WHERE status='running' "
+            "AND (strftime('%s','now') - strftime('%s', updatedAt)) > ?",
+            (int(max_age_seconds),)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def claim_next_server_run():
+    """Atomically move the oldest pending run to 'running' and return it.
+    Relies on the caller holding an in-process lock (backend runs single
+    process), plus a guarded UPDATE for safety."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id, username FROM server_runs WHERE status='pending' "
+            "ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        cur = conn.execute(
+            "UPDATE server_runs SET status='running', updatedAt=CURRENT_TIMESTAMP "
+            "WHERE id=? AND status='pending'",
+            (row['id'],)
+        )
+        conn.commit()
+        if cur.rowcount != 1:
+            return None
+        return {"id": row['id'], "username": row['username']}
+    finally:
+        conn.close()
+
+
+def heartbeat_server_run(run_id):
+    conn = get_db()
+    conn.execute(
+        "UPDATE server_runs SET updatedAt=CURRENT_TIMESTAMP WHERE id=? AND status='running'",
+        (run_id,)
+    )
+    conn.commit()
+    conn.close()
+
+
+def finish_server_run(run_id, status, error=None):
+    conn = get_db()
+    conn.execute(
+        "UPDATE server_runs SET status=?, error=?, updatedAt=CURRENT_TIMESTAMP WHERE id=?",
+        (status, error, run_id)
+    )
     conn.commit()
     conn.close()

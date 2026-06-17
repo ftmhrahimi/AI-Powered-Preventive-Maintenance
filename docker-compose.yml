@@ -43,6 +43,27 @@ services:
     networks:
       - pm-net
 
+  # Headless-browser worker: processes users' files server-side so the work
+  # continues even after they close the browser / shut down their machine.
+  # It drives the exact same frontend pipeline in headless Chromium, so the
+  # output is identical to running locally.
+  worker:
+    build: ./worker
+    image: pm-portal-worker:latest
+    container_name: pm-worker
+    env_file: .env
+    environment:
+      WORKER_BACKEND_URL: http://backend:9700
+      WORKER_FRONTEND_URL: http://frontend
+      WORKER_TOKEN: ${WORKER_TOKEN:-}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - pm-net
+
   minio:
     image: minio/minio:latest
     container_name: pm-minio

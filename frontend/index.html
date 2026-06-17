@@ -272,6 +272,7 @@
     .vbadge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:99px;font-size:10px;font-weight:600;}
     .vb-confirmed{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
     .vb-tech-ok{background:var(--green-bg);color:#1a7a45;border:0.5px solid #b8e6cc;}
+    .vb-tech-fail{background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
     .vb-disputed{background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
     .vb-no-ev{background:var(--surface);color:var(--gray);border:0.5px solid var(--border);}
     .cause-tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;margin:1px;background:var(--red-bg);color:#8b0000;border:0.5px solid #f5b8b8;}
@@ -440,7 +441,7 @@
         <button class="btn-pick" id="btnAddFiles" onclick="document.getElementById('fileInput').click()" style="background:var(--surface);border:0.5px solid var(--border);color:#333;">＋ Add Files</button>
         <button class="btn-pick" id="btnClearFolder" onclick="clearFolder()" style="background:#6c757d;color:white;display:none;margin-left:5px;">✕ Clear</button>
         <div id="globalRunControls" style="display:flex;gap:8px;align-items:center;">
-        <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;">▶ Run All</button>
+        <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;" title="Runs here with live progress. If you close this page mid-run, the server keeps going and finishes the rest.">▶ Run All</button>
         <button class="btn-run" id="btnStopAll" onclick="stopAll()" style="background:#dc3545;display:none;">■ Stop All</button>
         </div>
         <input type="file" id="folderInput" webkitdirectory multiple accept=".pdf" style="display:none"/>
@@ -1537,7 +1538,7 @@ function updateAdminKpis(reports) {
   const filtered  = getAdminDashboardFilteredReports(reports);
   const validated = filtered.filter(r => !(r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
   const disputed  = filtered.filter(r =>  (r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
-  const pcts = filtered.map(r => r.acceptanceRate ?? r.confirmation).filter(v => v != null);
+  const pcts = filtered.map(r => r.confirmation ?? r.acceptanceRate).filter(v => v != null);
   const avg  = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
   const sites = new Set(filtered.map(r => r.siteId).filter(Boolean)).size;
   document.getElementById('adminKpiTotal').textContent     = filtered.length;
@@ -1599,7 +1600,7 @@ function applyAdminDashboardFilters() {
     return;
   }
   tbody.innerHTML = adminFilteredReports.map((r, idx) => {
-  const conf = r.acceptanceRate ?? r.confirmation ?? 0;
+  const conf = r.confirmation ?? r.acceptanceRate ?? 0;
     const cc   = conf>=80?'high':conf>=50?'mid':'low';
     const fc2  = conf>=80?'var(--green)':conf>=50?'#d4a017':'var(--red)';
     const disp = (r.results||[]).some(x => x.verdict==='DISPUTED');
@@ -1730,7 +1731,7 @@ function updateKpis(reports) {
   const filtered  = getFilteredReports(reports);
   const validated = filtered.filter(r => !(r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
   const disputed  = filtered.filter(r =>  (r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
-  const pcts = filtered.map(r => r.acceptanceRate ?? r.confirmation).filter(v => v != null);
+  const pcts = filtered.map(r => r.confirmation ?? r.acceptanceRate).filter(v => v != null);
   const avg  = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
   const sites = new Set(filtered.map(r => r.siteId).filter(Boolean)).size;
   document.getElementById('kpiTotal').textContent     = filtered.length;
@@ -1790,7 +1791,7 @@ async function applyFilters() {
     return;
   }
   tbody.innerHTML = filtered.map(r => {
-    const conf = r.acceptanceRate ?? r.confirmation ?? 0;
+    const conf = r.confirmation ?? r.acceptanceRate ?? 0;
     const cc   = conf>=80?'high':conf>=50?'mid':'low';
     const fc2  = conf>=80?'var(--green)':conf>=50?'#d4a017':'var(--red)';
     const disp = (r.results||[]).some(x => x.verdict==='DISPUTED');
@@ -1996,7 +1997,7 @@ function renderJobsTable() {
 }
 
 function buildJobRow(job, idx) {
-  const ar = job.acceptanceRate ?? job.confirmation;
+  const ar = job.confirmation ?? job.acceptanceRate;
   const pctHtml = ar !== null && ar !== undefined
     ? `<div class="pct-cell ${ar>=80?'high':ar>=50?'mid':'low'}">${ar}%</div>`
     : `<div class="pct-cell na">—</div>`;
@@ -2041,7 +2042,7 @@ function setJob(idx, updates) {
 function updateSummary() {
   const done     = jobs.filter(j => j.status==='done').length;
   const disputed = jobs.filter(j => j.status==='done' && j.confirmation!==null && j.confirmation<100).length;
-  const pcts     = jobs.filter(j => j.acceptanceRate!=null||j.confirmation!=null).map(j => j.acceptanceRate??j.confirmation);
+  const pcts     = jobs.filter(j => j.confirmation!=null||j.acceptanceRate!=null).map(j => j.confirmation??j.acceptanceRate);
   const avg      = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
   document.getElementById('sumTotal').textContent    = jobs.length;
   document.getElementById('sumDone').textContent     = done;
@@ -2078,11 +2079,45 @@ function updateGlobalBtns() {
   if (btnAdd) btnAdd.disabled = false;
 }
 
+/* ── Server hand-off ─────────────────────────────────────────────────────
+   "Run All" runs here in the browser with live progress. But if the user
+   closes the page / shuts down mid-run, the work would normally freeze. While
+   a run is active we arm a hand-off: on page unload we ask the always-on
+   server to finish the rest. The server opens this exact same page in a
+   headless browser, restores the still-pending files and completes them — so
+   the output is identical, it just no longer depends on the browser staying
+   open. Each step is already persisted to the backend, so nothing is lost. */
+let runHandoffArmed = false;
+
+function enqueueServerHandoff() {
+  // When THIS page is the headless worker on the server, it must not enqueue
+  // another server run on unload — the worker manages continuation itself.
+  if (window.__PM_HEADLESS_WORKER) return;
+  if (!runHandoffArmed || !currentUser) return;
+  const incomplete = jobs.some(j =>
+    j.status === 'pending' || j.status === 'running' ||
+    j.status === 'stopped' || j.status === 'error');
+  if (!incomplete) return;
+  try {
+    const url  = window.APP_CONFIG.BACKEND_URL + '/api/server-run';
+    const blob = new Blob([JSON.stringify({ username: currentUser.username })],
+                          { type: 'application/json' });
+    // sendBeacon survives the page being torn down (unlike fetch).
+    navigator.sendBeacon(url, blob);
+  } catch (e) { /* best effort — nothing else we can do while unloading */ }
+}
+
+// Fires when the tab is closed, navigated away, or hidden on shutdown.
+window.addEventListener('pagehide', enqueueServerHandoff);
+
 /* ── Run All ─────────────────────────────────────────────────────────── */
 async function runAll() {
   if (runAllActive) return;
   runAllActive  = true;
   runAllStopped = false;
+  // Arm the server hand-off for the duration of this run.
+  runHandoffArmed = true;
+  showToast('▶ Processing… you can safely close this page — the server will finish any remaining files.');
 
   // Build queue of all eligible job indices BEFORE marking them
   runAllQueue = [];
@@ -2133,6 +2168,9 @@ async function runAll() {
 
   runAllActive  = false;
   runAllStopped = false;
+  // The local run finished (or was stopped) with the page still open, so there
+  // is nothing for the server to take over — disarm the hand-off.
+  runHandoffArmed = false;
   jobs.forEach((j, i) => {
     if (j.status === 'running') { j.aborted = true; setJob(i, {status:'stopped', pct:0, barLabel:'Stopped'}); }
   });
@@ -2145,6 +2183,8 @@ async function checkJobPause(idx) {
 async function stopAll() {
   runAllStopped = true;
   runAllActive  = false;
+  // An explicit stop must NOT be resumed by the server on page unload.
+  runHandoffArmed = false;
 
   // Hard-stop all running jobs immediately in the UI
   jobs.forEach((j, i) => {
@@ -2827,7 +2867,13 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
     })();
     const verdictText=r.verdict==='CONFIRMED'?'OK':r.verdict==='DISPUTED'?'Not OK':'—';
     const causePillsHtml=(r.causes||[]).map(c=>`<div style="margin-top:3px;"><span class="cause-tag">${causeLabels[c]||c}</span></div>`).join('');
+    // A "Not OK" is split into two professional categories so the reason is clear:
+    //  • Technically Compliant      → the work itself meets spec; only the photo
+    //    evidence (capture date / GPS location) is questionable.
+    //  • Technically Non-Compliant  → a genuine technical defect / wrong or
+    //    irrelevant evidence, i.e. the work does not meet spec.
     const isTechOk=r.verdict==='DISPUTED'&&(r.causes||[]).every(c=>['IMAGE_DATE_MISMATCH','IMAGE_GPS_MISMATCH','IMAGE_GPS_MISSING'].includes(c))&&(r.causes||[]).length>0;
+    const isTechFail=r.verdict==='DISPUTED'&&!isTechOk;
     return `<tr>
       <td style="color:var(--gray)">${r.row}</td>
       <td style="font-size:11px;line-height:1.5;${/[\u0600-\u06FF]/.test(item.desc||'')?'direction:rtl;text-align:right;font-family:Tahoma,sans-serif':'direction:ltr;text-align:left;'}">${escHtml(item.desc||'')}</td>
@@ -2838,7 +2884,12 @@ function renderModalContent(h, parsedItems, results, titleText, titleId, verdict
   <div style="font-size:12px;font-weight:600;margin-bottom:4px">${verdictText}</div>
   ${isTechOk ? `
     <div style="margin-bottom:4px">
-      <span class="vbadge vb-tech-ok">Technically correct</span>
+      <span class="vbadge vb-tech-ok" title="The work meets specification; only the photo evidence (capture date / GPS location) could not be verified.">Technically Compliant</span>
+    </div>
+  ` : ''}
+  ${isTechFail ? `
+    <div style="margin-bottom:4px">
+      <span class="vbadge vb-tech-fail" title="Marked Not OK for a genuine technical reason — the evidence shows the work does not meet specification. See the reason(s) and AI explanation.">Technically Non-Compliant</span>
     </div>
   ` : ''}
   ${causePillsHtml ? `

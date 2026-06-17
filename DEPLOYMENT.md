@@ -2,12 +2,13 @@
 
 Target server: **10.130.154.133** (offline / air-gapped Linux server with Docker, Docker Compose, and a running vLLM service on port 8000. Nothing else is installed.)
 
-The stack consists of three containers plus the existing vLLM service:
+The stack consists of four containers plus the existing vLLM service:
 
 | Service  | Container   | Purpose                                            | Host port |
 |----------|-------------|----------------------------------------------------|-----------|
 | frontend | pm-frontend | nginx — serves the UI and proxies all API traffic  | 80        |
 | backend  | pm-backend  | Flask/gunicorn — extraction, auth, reports, LLM proxy | 9700   |
+| worker   | pm-worker   | Headless-browser worker — runs "Run on Server" jobs (continues after the user leaves) | — (internal only) |
 | minio    | pm-minio    | Object storage for extracted photos/metadata       | 9001 (console only) |
 | vLLM     | *(existing)*| LLM inference — **not** managed by this compose    | 8000      |
 
@@ -26,9 +27,15 @@ The offline server cannot pull base images (`python:3.11-slim`, `nginx:alpine`,
 
 ```bash
 # On the connected machine, in the project root:
-docker compose build                 # builds pm-portal-backend and pm-portal-frontend
+docker compose build                 # builds backend, frontend AND worker
 docker pull minio/minio:latest       # MinIO is used as-is, just pull it
 ```
+
+> **Note on the worker image.** The `worker` service is built from the official
+> Playwright image (`mcr.microsoft.com/playwright/python`), which bundles
+> Chromium and is **large (~2 GB)**. `docker compose build` pulls that base
+> image automatically on the connected machine, so the offline server never
+> needs internet — but expect the exported tar to grow by ~1.5–2 GB.
 
 The frontend build is a multi-stage Docker build: a temporary `node:20-alpine`
 stage minifies and strips `index.html` (production build), then the result is
@@ -40,6 +47,7 @@ build machine — nothing extra is shipped to the offline server.
 docker save -o pm-portal-images.tar \
   pm-portal-backend:latest \
   pm-portal-frontend:latest \
+  pm-portal-worker:latest \
   minio/minio:latest
 ```
 
@@ -91,6 +99,10 @@ Edit `/opt/pm-portal/.env` and check:
   MinIO root credentials and the backend's access credentials.
 - `ADMIN_PASSWORD` — initial admin login for the portal; change it.
 - `ALLOWED_ORIGIN=http://10.130.154.133` — the URL users open in the browser.
+- `WORKER_TOKEN` *(optional)* — shared secret for the headless worker's internal
+  endpoints. The worker endpoints (`/worker/*`) are already unreachable from
+  outside (nginx does not proxy them), so this is defence-in-depth. If you set
+  it, the same value is read by both `backend` and `worker` from `.env`.
 
 ## 5. Start everything
 
@@ -127,6 +139,38 @@ docker compose exec minio mc ready local  # → "The cluster is ready"
 Then open `http://10.130.154.133` in a browser and log in with the admin
 account from `.env`.
 
+## 6a. "Run on Server" — processing that survives the browser closing
+
+Normally the audit pipeline runs **inside the user's browser tab**: closing the
+tab or shutting down the computer freezes every job at its current step. The
+**☁ Run on Server** button (next to **▶ Run All**) hands the user's pending
+files to the always-on server instead.
+
+How it works:
+
+1. The user uploads/queues their PDFs as usual (already stored on the backend)
+   and clicks **☁ Run on Server**. The browser records a request via
+   `POST /api/server-run` and can then be closed safely.
+2. The `worker` container claims the request and opens the **exact same
+   frontend page** in a headless Chromium, logged in as that user. It restores
+   the pending files and runs the identical pipeline — so results are identical
+   to running locally.
+3. Each step is persisted to the backend as it completes (the frontend already
+   saves job state via `/api/userfiles`). When the user logs back in, their
+   files show as completed.
+
+Watch it work:
+
+```bash
+docker compose logs -f worker
+# → "claimed server-run …", "starting runAll()", "completed"
+```
+
+Only one `worker` replica should run (it processes one user's batch at a time,
+then picks up the next). If the worker container restarts mid-batch, any
+in-progress run is automatically requeued and resumes; already-finished files
+are not redone.
+
 ## 7. Day-to-day operations
 
 ```bash
@@ -154,7 +198,7 @@ On the connected machine:
 
 ```bash
 docker compose build
-docker save -o pm-portal-images.tar pm-portal-backend:latest pm-portal-frontend:latest
+docker save -o pm-portal-images.tar pm-portal-backend:latest pm-portal-frontend:latest pm-portal-worker:latest
 ```
 
 On the server:
@@ -207,6 +251,8 @@ docker compose up -d
 | Port 80 already in use | Set `FRONTEND_PORT=8080` in `.env`, then `docker compose up -d`; access via `http://10.130.154.133:8080` and update `ALLOWED_ORIGIN` accordingly. |
 | Containers don't come back after reboot | `sudo systemctl enable --now docker`. The `unless-stopped` policy then restarts them. |
 | Need a shell inside a container | `docker compose exec backend sh` |
+| "Run on Server" never finishes the files | `docker compose logs -f worker`. Check the worker reached the frontend (`WORKER_FRONTEND_URL=http://frontend`) and the backend (`WORKER_BACKEND_URL=http://backend:9700`). A run stuck "running" with a dead worker is auto-requeued after `SERVER_RUN_STALE_SECONDS` (default 900s). |
+| Worker image fails to build offline | It must be built on the **connected** machine (`docker compose build`) and shipped in the tar; the Playwright base image cannot be pulled on the air-gapped server. |
 | Photos don't load in reports | Photos exist only for PDFs processed via `/extract`. Verify objects: open MinIO console `http://10.130.154.133:9001` (login = MinIO credentials from `.env`), bucket `pm-photos`. |
 
 ### vLLM connectivity note

@@ -21,7 +21,10 @@ from db import (
     delete_report, delete_report_by_filename, register_user, login_user, is_admin_user,
     save_user_file, get_user_files, delete_user_file, delete_all_user_files,
     get_all_task_rules, upsert_task_rule, delete_task_rule,   # ← add these
-    get_all_sites, upsert_site, delete_site                   # ← add these
+    get_all_sites, upsert_site, delete_site,                  # ← add these
+    enqueue_server_run, get_latest_server_run, get_user_session,
+    claim_next_server_run, requeue_stale_running, heartbeat_server_run,
+    finish_server_run
 )
 # PDF storage directory (persisted via Docker volume)
 PDF_STORAGE_DIR = os.path.join(STORAGE_DIR, 'pdfs')
@@ -54,6 +57,14 @@ AUDIT_LOCK = threading.Lock()
 
 STOP_ALL_FLAG = False
 STOP_ALL_LOCK = threading.Lock()
+
+# Serializes claiming of server-side run jobs by the headless worker.
+SERVER_RUN_CLAIM_LOCK = threading.Lock()
+# Shared secret for the internal worker endpoints (set in .env for the worker
+# service). If unset, the endpoints stay open on the internal Docker network.
+WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "")
+# Running rows older than this (no heartbeat) are assumed dead and requeued.
+SERVER_RUN_STALE_SECONDS = int(os.environ.get("SERVER_RUN_STALE_SECONDS", "900"))
 
 def init_audit_db():
     with sqlite3.connect(AUDIT_DB) as conn:
@@ -764,6 +775,95 @@ def remove_site():
         return jsonify({"error": "Admin access required"}), 403
     delete_site(request.args.get('siteId'))
     return jsonify({"success": True})
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Server-side run queue
+#
+#  A user can ask the server to process their pending files so the work keeps
+#  going after they close the browser / shut down their machine. A separate
+#  headless-browser worker (see ../worker) claims these requests and drives the
+#  exact same frontend pipeline, so the output is identical to running locally.
+# ──────────────────────────────────────────────────────────────────────────
+
+# Public (browser-facing, proxied through nginx under /api/)
+@app.route('/api/server-run', methods=['POST', 'OPTIONS'])
+def server_run_enqueue():
+    if request.method == 'OPTIONS':
+        return '', 204
+    data = request.get_json() or {}
+    username = data.get('username')
+    if not username:
+        return jsonify({"success": False, "error": "No username"}), 400
+    result = enqueue_server_run(username)
+    log_event("SERVER_RUN_REQUESTED", username=username, job_id=str(result["id"]),
+              description="User requested server-side processing of pending files",
+              ip_address=request.remote_addr, status=result["status"])
+    return jsonify({"success": True, "id": result["id"], "status": result["status"]})
+
+
+@app.route('/api/server-run', methods=['GET'])
+def server_run_status():
+    username = request.args.get('username')
+    if not username:
+        return jsonify({"status": None})
+    run = get_latest_server_run(username)
+    return jsonify(run or {"status": None})
+
+
+# Internal (worker-only). These paths are NOT proxied by nginx, so they are
+# only reachable from inside the Docker network by the worker service.
+def _worker_authorized():
+    if not WORKER_TOKEN:
+        return True
+    return request.headers.get("X-Worker-Token", "") == WORKER_TOKEN
+
+
+@app.route('/worker/claim', methods=['POST'])
+def worker_claim():
+    if not _worker_authorized():
+        return jsonify({"error": "unauthorized"}), 403
+    with SERVER_RUN_CLAIM_LOCK:
+        requeue_stale_running(SERVER_RUN_STALE_SECONDS)
+        run = claim_next_server_run()
+    if not run:
+        return jsonify({"run": None})
+    session = get_user_session(run["username"])
+    if not session:
+        finish_server_run(run["id"], "failed", "user not found")
+        return jsonify({"run": None})
+    log_event("SERVER_RUN_STARTED", username=run["username"], job_id=str(run["id"]),
+              description="Headless worker claimed server-side run", status="running")
+    return jsonify({"run": {"id": run["id"], "username": run["username"], "user": session}})
+
+
+@app.route('/worker/heartbeat', methods=['POST'])
+def worker_heartbeat():
+    if not _worker_authorized():
+        return jsonify({"error": "unauthorized"}), 403
+    data = request.get_json() or {}
+    run_id = data.get("id")
+    if run_id is not None:
+        heartbeat_server_run(run_id)
+    return jsonify({"success": True})
+
+
+@app.route('/worker/complete', methods=['POST'])
+def worker_complete():
+    if not _worker_authorized():
+        return jsonify({"error": "unauthorized"}), 403
+    data = request.get_json() or {}
+    run_id = data.get("id")
+    status = data.get("status", "done")
+    error = data.get("error")
+    username = data.get("username")
+    if run_id is None:
+        return jsonify({"success": False, "error": "No id"}), 400
+    finish_server_run(run_id, status, error)
+    log_event("SERVER_RUN_FINISHED", username=username, job_id=str(run_id),
+              detail=error, description=f"Headless worker finished server-side run: {status}",
+              status=status)
+    return jsonify({"success": True})
+
 
 if __name__ == "__main__":
     app.run(host=BACKEND_HOST, port=BACKEND_PORT, debug=False)
