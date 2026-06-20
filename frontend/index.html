@@ -2889,36 +2889,16 @@ setJob(idx, { status: 'done', pct: 100, barLabel: 'Complete', confirmation, acce
   }
 }
 function fixPersian(text) {
-  if (!text || !/[\u0600-\u06FF]/.test(text)) return text;
-  return text.split(' ').join(' ');
+  if (!text) return text;
+  // PDF text layers frequently store Persian/Arabic as pre-shaped *presentation
+  // forms* (Unicode blocks U+FB50\u2013FDFF and U+FE70\u2013FEFF) \u2014 sometimes mixed with
+  // normal letters. The browser/LLM then re-shape that mix inconsistently, which
+  // is what turned "\u0633\u06CC\u0633\u062A\u0645" into "\u0633\u06A9\u0633\u06CC\u0633\u062A\u0645" and "\u06A9\u0646\u06CC\u062F" into "\u06A9\u0646\u06A9\u062F". NFKC collapses
+  // every presentation form back to its canonical letter, so the text displays
+  // and feeds the AI correctly. Deterministic \u2014 no LLM involved.
+  return text.normalize('NFKC');
 }
 /* PDF parsing — identical to original */
-/* ── TEMP DIAGNOSTIC: dump raw pdf.js text fragments for a chosen PDF ──
-   Call __dumpPdfText() from the browser console, pick the PDF, then paste the
-   logged output. Defined inside the app script so it can see pdfjsLib. Safe to
-   remove later — used only to design the Persian extraction fix. */
-window.__dumpPdfText = async function () {
-  const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = '.pdf';
-  inp.onchange = async () => {
-    try {
-      const buf = await inp.files[0].arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-      let out = '';
-      for (let p = 1; p <= pdf.numPages; p++) {
-        const tc = await (await pdf.getPage(p)).getTextContent();
-        if (!tc.items.some(it => /[؀-ۿ]/.test(it.str))) continue;
-        out += '--- page ' + p + ' ---\n';
-        out += tc.items.filter(it => (it.str || '').trim())
-          .map(it => `"${it.str}" x=${Math.round(it.transform[4])} y=${Math.round(it.transform[5])} f=${it.fontName||''}`)
-          .join('\n') + '\n';
-      }
-      console.log(out);
-      try { await navigator.clipboard.writeText(out); console.log('✓ copied to clipboard'); } catch (e) {}
-    } catch (e) { console.error('dump failed', e); }
-  };
-  inp.click();
-};
 async function extractTasksFromPdf(pdf, isEnglish=false, signal=null) {
   const tasks = []; let taskCounter = 1;
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
@@ -2943,7 +2923,9 @@ async function extractTasksFromPdf(pdf, isEnglish=false, signal=null) {
       const box = items.filter(it=>it.y<top&&it.y>bottom).filter(it=>it.y>(bottom+3)).filter(it=>!/^(ok|not\s*ok)$/i.test(it.str.trim())).filter(it=>!/☑|☐|✓|✗/.test(it.str));
       box.sort((a,b)=>Math.abs(a.y-b.y)>3?(isEnglish?b.y-a.y:a.y-b.y):(isEnglish?a.x-b.x:b.x-a.x));
       const raw=box.map(it=>it.str).join(' ').replace(/\s+/g,' ').trim();
-      const desc=/[\u0600-\u06FF]/.test(raw)?fixPersian(raw):raw;
+      // Always normalise: the PDF stores text as Arabic presentation forms that
+      // are OUTSIDE the U+0600\u201306FF range, so a range test would miss them.
+      const desc=fixPersian(raw);
       if(desc.length>5)tasks.push({num:taskCounter++,desc,result});
     }
     page.cleanup();
