@@ -3157,7 +3157,7 @@ async function runValidation(parsedItems,itemPhotoMap,parsedHeader,siteInfo,onPr
     const reportDateOnly=reportDate.match(/(\d{4}-\d{2}-\d{2})/)?.[1]||'';
     for(const m of metaList){
       if(m.date){const diffDays=Math.abs(new Date(m.date)-new Date(reportDateOnly))/86400000;m.dateOk=diffDays<=DATE_TOL;m.dateLabel=m.dateOk?`✓ ${m.date}`:`✗ ${m.date}`;}
-      else{m.dateOk=false;m.dateLabel='✗ No JSON';}
+      else{m.dateOk=false;m.dateLabel='✗ Date missing';}
       if(siteLat!=null&&m.lat!=null){m.dist=Math.round(haversine(siteLat,siteLon,m.lat,m.lon));m.gpsOk=m.dist<=GPS_RADIUS;m.gpsLabel=m.gpsOk?`✓ On-site (${m.dist}m)`:`✗ Off-site (${m.dist}m)`;}
       else{m.dist=null;m.gpsOk=false;m.gpsLabel='✗ GPS missing';}
     }
