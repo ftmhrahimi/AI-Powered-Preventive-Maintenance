@@ -75,12 +75,14 @@ def claim_run():
         return None
 
 
-def run_is_cancelled(username):
-    """True if the user asked to stop their current server-side run."""
+def run_is_cancelled(run_id):
+    """True if THIS specific run was cancelled.
+
+    Each file is its own run, so we must check the exact run we are processing —
+    checking "the user's latest run" would be wrong, because the same user may
+    have enqueued other files (newer runs) that are still active."""
     try:
-        resp = requests.get(BACKEND_URL + "/api/server-run",
-                            params={"username": username},
-                            headers=_HEADERS, timeout=15)
+        resp = _post("/worker/run-status", {"id": run_id})
         resp.raise_for_status()
         return (resp.json() or {}).get("status") == "cancelled"
     except Exception:
@@ -125,6 +127,15 @@ _PIPELINE_READY = "() => typeof runAllLocal === 'function' && Array.isArray(jobs
 _NONE_ACTIVE = (
     "() => Array.isArray(jobs) && "
     "!jobs.some(j => j.status === 'running' || j.status === 'pending')"
+)
+# Completion check for a SINGLE-file (targeted) run. The page also restored the
+# user's OTHER pending files, but this run only processes its one target — so it
+# is finished when that target file leaves running/pending, regardless of the
+# others. (For target=None we fall back to _NONE_ACTIVE.)
+_TARGET_DONE = (
+    "(name) => { const j = Array.isArray(jobs) && "
+    "jobs.find(x => x.file && x.file.name === name); "
+    "return !j || (j.status !== 'running' && j.status !== 'pending'); }"
 )
 # Diagnostic snapshot of what the restored page actually sees. 'saved' is how
 # many files the backend has for this user; 'jobs' is how many were rebuilt in
@@ -212,7 +223,7 @@ def process_run(browser, run):
         # Poll until every job reaches a terminal state, or the user cancels.
         deadline = time.time() + (COMPLETION_TIMEOUT_MS / 1000.0)
         while True:
-            if run_is_cancelled(username):
+            if run_is_cancelled(run_id):
                 log.info("run %s: cancellation requested — stopping", run_id)
                 try:
                     page.evaluate("() => { stopAll(); }")
@@ -220,7 +231,9 @@ def process_run(browser, run):
                     pass
                 return "cancelled", None
             try:
-                if page.evaluate(_NONE_ACTIVE):
+                done = (page.evaluate(_TARGET_DONE, target) if target
+                        else page.evaluate(_NONE_ACTIVE))
+                if done:
                     log.info("run %s: completed", run_id)
                     return "done", None
             except Exception as e:

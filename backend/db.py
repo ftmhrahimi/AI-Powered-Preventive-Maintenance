@@ -512,6 +512,35 @@ def get_latest_server_run(username):
     return dict(row) if row else None
 
 
+def get_active_server_runs(username):
+    """Return ALL of the user's currently active (pending or running) runs.
+
+    With per-file runs (each file enqueued under its own target) the UI needs
+    the full set of in-flight files, not just one, so every file can be tracked
+    and stopped independently."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, status, target FROM server_runs "
+        "WHERE username = ? AND status IN ('pending','running') "
+        "ORDER BY id ASC",
+        (username,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_server_run_status(run_id):
+    """Return the status string of a single run (or None). Used by the worker to
+    tell whether THIS specific run was cancelled, independently of any other
+    runs the same user may have enqueued in the meantime."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT status FROM server_runs WHERE id = ?", (run_id,)
+    ).fetchone()
+    conn.close()
+    return row['status'] if row else None
+
+
 def requeue_stale_running(max_age_seconds):
     """Reset 'running' rows whose worker likely died (no update within the
     cutoff) back to 'pending' so they get picked up again."""
@@ -573,15 +602,26 @@ def finish_server_run(run_id, status, error=None):
     conn.close()
 
 
-def cancel_server_run(username):
-    """Mark the user's active (pending or running) run as cancelled. The worker
-    polls for this and stops the headless run at the next item boundary."""
+def cancel_server_run(username, target=None):
+    """Mark the user's active (pending or running) runs as cancelled. The worker
+    polls for this and stops the headless run at the next item boundary.
+
+    target=None cancels EVERY active run for the user (Stop All). When a single
+    fileName is given, only that file's run is cancelled (Stop one file), so
+    other files keep processing — this is what makes per-file Stop isolated."""
     conn = get_db()
-    cur = conn.execute(
-        "UPDATE server_runs SET status='cancelled', updatedAt=CURRENT_TIMESTAMP "
-        "WHERE username=? AND status IN ('pending','running')",
-        (username,)
-    )
+    if target is None:
+        cur = conn.execute(
+            "UPDATE server_runs SET status='cancelled', updatedAt=CURRENT_TIMESTAMP "
+            "WHERE username=? AND status IN ('pending','running')",
+            (username,)
+        )
+    else:
+        cur = conn.execute(
+            "UPDATE server_runs SET status='cancelled', updatedAt=CURRENT_TIMESTAMP "
+            "WHERE username=? AND target=? AND status IN ('pending','running')",
+            (username, target)
+        )
     conn.commit()
     n = cur.rowcount
     conn.close()

@@ -290,6 +290,25 @@
     }
     .toast.show{transform:translateY(0);opacity:1;}
 
+    /* ══ UPLOAD NOTIFICATION (decoupled from per-file process log) ══ */
+    .upload-toast{
+      position:fixed;bottom:24px;right:24px;z-index:9998;
+      display:flex;align-items:center;gap:10px;
+      background:#fff;color:#1a1a1a;padding:12px 16px;border-radius:10px;
+      border:1px solid #e2e8f0;box-shadow:0 6px 20px rgba(0,0,0,.12);
+      font-size:13px;font-weight:500;min-width:200px;
+      transform:translateY(80px);opacity:0;transition:all .3s;pointer-events:none;
+    }
+    .upload-toast.show{transform:translateY(0);opacity:1;}
+    .upload-toast .ut-spin{
+      width:14px;height:14px;border:2px solid #cbd5e0;border-top-color:#1a9e55;
+      border-radius:50%;animation:utspin .7s linear infinite;flex:0 0 auto;
+    }
+    .upload-toast.done .ut-spin{border-top-color:#1a9e55;border-color:#1a9e55;animation:none;}
+    @keyframes utspin{to{transform:rotate(360deg);}}
+    .upload-toast .ut-bar{height:4px;background:#edf2f7;border-radius:3px;overflow:hidden;margin-top:6px;}
+    .upload-toast .ut-bar-fill{height:100%;background:#1a9e55;width:0;transition:width .3s;}
+
     /* ══ LIGHTBOX ══ */
     .lb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;align-items:center;justify-content:center;flex-direction:column;}
     .lb-overlay.open{display:flex;}
@@ -836,6 +855,13 @@
 </div><!-- end panelAdmin -->
 
 <div class="toast" id="toast"></div>
+<div class="upload-toast" id="uploadToast">
+  <div class="ut-spin"></div>
+  <div style="flex:1;">
+    <div id="uploadToastText">Uploading…</div>
+    <div class="ut-bar"><div class="ut-bar-fill" id="uploadToastBar"></div></div>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -1064,6 +1090,30 @@ async function saveUserFiles() {
   } catch (err) {
     console.error('Failed to save user files:', err);
   }
+}
+
+// Persist ONLY one file's state (upsert). Used when stopping a single file
+// during a multi-file server run, so we never overwrite the other files'
+// backend state with our possibly-stale local view of them.
+async function saveSingleUserFile(j) {
+  if (!currentUser || !j || j._noFile || !j.file) return;
+  const file = {
+    fileName: j.file.name,
+    taskId: j.taskId,
+    status: j.status === 'running' ? 'pending' : j.status,
+    confirmation: j.confirmation ?? null,
+    pct: j.pct ?? null,
+    barLabel: j.barLabel ?? null,
+    parsedHeader: j.parsedHeader || {},
+    parsedItems: j.parsedItems || [],
+    results: _stripPhotos(j.results || [])
+  };
+  try {
+    await fetch(window.APP_CONFIG.BACKEND_URL + '/api/userfiles', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: currentUser.username, files: [file] })
+    });
+  } catch (err) { console.error('Failed to save user file:', err); }
 }
 
 async function deleteUserFile(username, fileName) {
@@ -1934,6 +1984,36 @@ function showToast(msg) {
   toastTimeout = setTimeout(() => t.classList.remove('show'), 2800);
 }
 
+/* ── Upload notification (separate, compact, bottom-right) ───────────────
+   The "uploading" status is intentionally decoupled from each file's process
+   log. It shows as one small notification with progress like "1 of 2 files
+   uploaded" instead of being mixed into the per-file bar label. */
+let uploadToastTimeout = null;
+function showUploadProgress(done, total) {
+  const el = document.getElementById('uploadToast');
+  if (!el || !total) return;
+  clearTimeout(uploadToastTimeout);
+  const text = document.getElementById('uploadToastText');
+  const bar  = document.getElementById('uploadToastBar');
+  const isDone = done >= total;
+  text.textContent = isDone
+    ? `${total} of ${total} files uploaded`
+    : `${done} of ${total} files uploaded`;
+  bar.style.width = Math.round((done / total) * 100) + '%';
+  el.classList.toggle('done', isDone);
+  el.classList.add('show');
+  if (isDone) hideUploadProgress(1600);
+}
+function hideUploadProgress(delay = 0) {
+  const el = document.getElementById('uploadToast');
+  if (!el) return;
+  clearTimeout(uploadToastTimeout);
+  uploadToastTimeout = setTimeout(() => {
+    el.classList.remove('show');
+    el.classList.remove('done');
+  }, delay);
+}
+
 /* ══════════════════════════════════════════════
    VALIDATOR (original logic, preserved exactly)
 ══════════════════════════════════════════════ */
@@ -2119,51 +2199,45 @@ function updateGlobalBtns() {
    down no longer interrupts anything — the server finishes on its own and
    the results are here when you come back (even after sign-out / sign-in). */
 let serverViewActive = false;
-let serverRunTarget  = null;   // null = whole queue; else the single fileName being run
+// Per-file run model: each file is enqueued as its own independently-cancellable
+// server run. These two sets are the single source of truth for "which files are
+// live on the server" — no shared/global batch flag that one Stop can corrupt.
+let serverActiveTargets = new Set(); // fileNames with an active (pending/running) server run
+const startingFiles     = new Set(); // fileNames the user just launched, run not yet enqueued
 
-// Upload the given jobs' PDFs to backend storage WITH visible per-file feedback.
-// The server's headless browser has an empty IndexedDB, so it can only get each
-// PDF by downloading it from the backend — if a file isn't there, the worker
-// finds "no pending jobs" and does nothing. Showing "Uploading…" also makes it
-// obvious to the user that something is happening before the run starts.
-async function uploadJobsToServer(targetJobs) {
-  for (const j of targetJobs) {
-    j.aborted = false; j.status = 'running'; j.pct = 10;
-    // Placeholders / no-file jobs already live in backend storage, so the
-    // server can fetch them directly — no local re-upload needed.
-    const hasRealFile = j.file && !j._noFile && !j._needsFile && typeof j.file.arrayBuffer === 'function';
-    if (hasRealFile) {
-      j.barLabel = 'Uploading to server…';
-      renderJobsTable(); updateGlobalBtns();
-      try {
-        const fd = new FormData();
-        fd.append('file', j.file);
-        fd.append('username', currentUser.username);
-        await fetch(window.APP_CONFIG.BACKEND_URL + '/api/pdfs/upload', { method: 'POST', body: fd });
-      } catch (e) { console.warn('Pre-run upload failed for', j.file && j.file.name, e); }
-    }
-    j.pct = 0; j.barLabel = 'Queued on server…';
-    renderJobsTable(); updateGlobalBtns();
-  }
+// Does this job need its PDF re-uploaded? Placeholders / no-file jobs already
+// live in backend storage, so the server can fetch them directly.
+function jobNeedsUpload(j) {
+  return !!(j && j.file && !j._noFile && !j._needsFile &&
+            typeof j.file.arrayBuffer === 'function');
 }
 
-// Shared: persist state, enqueue a server run, and start watching it.
-async function startServerRun(target) {
-  await saveUserFiles();
+// Upload a single job's PDF to backend storage. The server's headless browser
+// has an empty IndexedDB, so it can only get each PDF by downloading it from the
+// backend — if a file isn't there, the worker finds "no pending jobs".
+async function uploadJobPdf(j) {
+  if (!jobNeedsUpload(j)) return;
   try {
-    const body = { username: currentUser.username };
-    if (target) body.target = target;
+    const fd = new FormData();
+    fd.append('file', j.file);
+    fd.append('username', currentUser.username);
+    await fetch(window.APP_CONFIG.BACKEND_URL + '/api/pdfs/upload', { method: 'POST', body: fd });
+  } catch (e) { console.warn('Pre-run upload failed for', j.file && j.file.name, e); }
+}
+
+// Enqueue ONE file as its own server run (per-file isolation: each file can be
+// stopped/re-run independently of the others).
+async function enqueueServerRun(target) {
+  try {
     const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/server-run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({ username: currentUser.username, target })
     });
     const data = await res.json();
     if (!data || !data.success) {
-      showToast('⚠ Could not start server run: ' + ((data && data.error) || 'unknown error'));
+      showToast('⚠ Could not start server run for ' + target);
       return false;
     }
-    showToast('☁ Processing on the server — you can lock, close, or shut down. It will finish on its own.');
-    startServerRunView();
     return true;
   } catch (e) {
     showToast('⚠ Could not reach the server. Please try again.');
@@ -2171,13 +2245,63 @@ async function startServerRun(target) {
   }
 }
 
+// Mark a job as launched immediately (before any upload/await) so the UI shows
+// every file starting at once when "Run All" is clicked — Bug 1.
+function markJobLaunching(j) {
+  if (!j || !j.file) return;
+  j.aborted = false; j.stopRequested = false;
+  j.status = 'running'; j.pct = 0; j.barLabel = 'Queued on server…';
+  startingFiles.add(j.file.name);
+}
+
+// Launch the given jobs on the server: show all of them as started at once,
+// begin watching, then upload + enqueue each one in parallel. The "uploading"
+// status is surfaced as a separate bottom-right notification, not in the
+// per-file process log.
+async function launchServerJobs(targetJobs) {
+  if (!currentUser || !targetJobs.length) return;
+
+  // 1. Mark ALL as started immediately so the whole batch lights up at once.
+  targetJobs.forEach(markJobLaunching);
+  renderJobsTable(); updateGlobalBtns();
+  // Persist ONLY the launched files (as pending) so the worker can restore them.
+  // A full save here could clobber other files that are mid-run on the server.
+  await Promise.all(targetJobs.map(saveSingleUserFile));
+
+  // 2. Start watching now (guarded against double-start).
+  startServerRunView();
+  showToast('☁ Processing on the server — you can lock, close, or shut down. It will finish on its own.');
+
+  // 3. Upload (in parallel) + enqueue each file's own run as soon as its PDF
+  //    is up. Upload progress is shown as a compact, separate notification.
+  const uploads = targetJobs.filter(jobNeedsUpload);
+  let uploaded = 0;
+  if (uploads.length) showUploadProgress(0, uploads.length);
+
+  await Promise.all(targetJobs.map(async (j) => {
+    const name = j.file.name;
+    if (jobNeedsUpload(j)) {
+      await uploadJobPdf(j);
+      // The user may have stopped this file while it was still uploading.
+      if (!startingFiles.has(name)) return;
+      uploaded++;
+      showUploadProgress(uploaded, uploads.length);
+    }
+    if (!startingFiles.has(name)) return; // stopped mid-launch — don't enqueue
+    await enqueueServerRun(name);
+    serverActiveTargets.add(name);
+    startingFiles.delete(name);
+  }));
+
+  if (uploads.length) showUploadProgress(uploads.length, uploads.length);
+}
+
 async function runAll() {
   if (!currentUser) return;
   const pendingJobs = jobs.filter(j =>
     j.status === 'pending' || j.status === 'stopped' || j.status === 'error');
   if (!pendingJobs.length) { showToast('No pending files to run.'); return; }
-  await uploadJobsToServer(pendingJobs);
-  await startServerRun(null);   // null target = process the whole pending queue
+  await launchServerJobs(pendingJobs);
 }
 
 // Per-row "Run" / "Re-run": run just this one file, on the server, so its
@@ -2185,8 +2309,7 @@ async function runAll() {
 async function runServerSingle(idx) {
   const j = jobs[idx];
   if (!currentUser || !j) return;
-  await uploadJobsToServer([j]);
-  await startServerRun(j.file.name);
+  await launchServerJobs([j]);
 }
 
 // Merge the server's saved per-file state into the local table (no heavy work
@@ -2208,8 +2331,10 @@ function mergeServerFiles(savedFiles) {
     } else if (st === 'stopped') {
       job.status = 'stopped'; job.pct = 0; job.barLabel = 'Stopped';
     } else { // 'pending' — may mean "in progress" if this file is in the run
+      // A file is "in flight" if it has an active server run, or the user just
+      // launched it and its run is still being enqueued.
       const inThisRun = serverViewActive &&
-        (serverRunTarget == null || serverRunTarget === sf.fileName);
+        (serverActiveTargets.has(sf.fileName) || startingFiles.has(sf.fileName));
       if (inThisRun) {
         job.status = 'running';
         // Reflect the REAL granular progress the server saved (e.g. "Validating
@@ -2226,14 +2351,15 @@ function mergeServerFiles(savedFiles) {
   });
 }
 
-function updateServerBanner(runStatus) {
+function updateServerBanner(active) {
   const el = document.getElementById('serverBanner');
   if (!el) return;
-  const active = serverViewActive && (runStatus === 'pending' || runStatus === 'running');
-  if (active) {
+  if (serverViewActive && active) {
+    const live = serverActiveTargets.size + startingFiles.size;
     let msg;
-    if (serverRunTarget) {
-      msg = `☁ Server is processing “${serverRunTarget}”. You can safely lock, close, or shut down this page.`;
+    if (live === 1) {
+      const only = [...serverActiveTargets, ...startingFiles][0];
+      msg = `☁ Server is processing “${only}”. You can safely lock, close, or shut down this page.`;
     } else {
       const done = jobs.filter(j => j.status === 'done').length;
       msg = `☁ Server is processing your files — ${done} of ${jobs.length} done. You can safely lock, close, or shut down this page.`;
@@ -2253,26 +2379,32 @@ async function startServerRunView() {
   serverViewActive = true;
   updateGlobalBtns();
   while (serverViewActive) {
-    let runStatus = null;
+    let anyActiveRun = false;
     try {
       const r  = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/server-run?username=${encodeURIComponent(currentUser.username)}`);
       const rd = await r.json();
-      runStatus = rd && rd.status;
-      // Capture which file(s) this run covers BEFORE merging, so the table only
-      // shows the targeted file as "processing".
-      serverRunTarget = (rd && rd.target) || null;
+      // Refresh the set of files that currently have an active server run, so
+      // the table reflects exactly what is live on the server. Files the user
+      // just launched (startingFiles) are kept until their run is enqueued.
+      const active = Array.isArray(rd && rd.runs) ? rd.runs : [];
+      const live = new Set(
+        active.filter(x => x.status === 'pending' || x.status === 'running')
+              .map(x => x.target).filter(Boolean)
+      );
+      startingFiles.forEach(n => live.add(n));
+      serverActiveTargets = live;
+      anyActiveRun = serverActiveTargets.size > 0;
       const files = await getUserFiles(currentUser.username);
       mergeServerFiles(files);
     } catch (e) { /* transient network hiccup — keep polling */ }
-    renderJobsTable(); updateSummary(); updateServerBanner(runStatus);
+    renderJobsTable(); updateSummary(); updateServerBanner(anyActiveRun);
     const anyProcessing = jobs.some(j => j.status === 'running');
-    const finished = !runStatus || runStatus === 'done' || runStatus === 'failed' || runStatus === 'cancelled';
-    if (finished && !anyProcessing) break;
+    if (!anyActiveRun && !anyProcessing && startingFiles.size === 0) break;
     await new Promise(res => setTimeout(res, 2000));
   }
   serverViewActive = false;
-  serverRunTarget  = null;
-  updateServerBanner(null);
+  serverActiveTargets = new Set();
+  updateServerBanner(false);
   renderJobsTable(); updateSummary(); updateGlobalBtns();
 }
 
@@ -2385,18 +2517,23 @@ async function checkJobPause(idx) {
 }
 /* ── Stop All ────────────────────────────────────────────────────────── */
 async function stopAll() {
+  // Local in-page engine globals (only meaningful inside the headless worker's
+  // page, where runAllLocal actually runs). Harmless in the human UI.
   runAllStopped = true;
   runAllActive  = false;
 
-  // If we are watching a server-side run, ask the server to cancel it and stop
-  // polling. The worker stops the headless run at the next item boundary.
+  // If we are watching server-side runs, cancel ALL of them (target omitted)
+  // and stop polling. The worker stops each headless run at the next boundary.
   if (serverViewActive && currentUser) {
     serverViewActive = false;
-    updateServerBanner(null);
+    serverActiveTargets = new Set();
+    startingFiles.clear();
+    hideUploadProgress();
+    updateServerBanner(false);
     try {
       await fetch(window.APP_CONFIG.BACKEND_URL + '/api/server-run/cancel', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: currentUser.username })
+        body: JSON.stringify({ username: currentUser.username })  // no target = all
       });
     } catch (e) { /* best effort */ }
   }
@@ -2438,16 +2575,33 @@ async function runSingle(idx) {
 }
 
 function stopSingle(idx) {
-  // While watching a server-side run, the work is happening on the server, so
-  // "Stop" must cancel the run there (there is no local job to abort).
-  if (serverViewActive) { stopAll(); return; }
-  jobs[idx].aborted = true;
-  jobs[idx].paused  = false;
-  jobs[idx].stopRequested = true;   // remember intent even if job_id isn't known yet
-  if (jobControllers[idx]) { jobControllers[idx].abort(); delete jobControllers[idx]; }
-  setJob(idx, { status: 'stopped', pct: 0, barLabel: 'Stopped' });
+  const j = jobs[idx];
+  if (!j) return;
+  const name = j.file && j.file.name;
 
-  const jobId = jobs[idx].serverJobId;
+  // Stop ONLY this file. Mark it stopped locally and drop it from the live
+  // sets so the watch loop and the other files are unaffected.
+  j.aborted = true;
+  j.paused  = false;
+  j.stopRequested = true;   // remember intent even if job_id isn't known yet
+  if (jobControllers[idx]) { jobControllers[idx].abort(); delete jobControllers[idx]; }
+  if (name) { startingFiles.delete(name); serverActiveTargets.delete(name); }
+  // Update THIS file only — a full saveUserFiles() here could overwrite another
+  // file that just completed on the server with our stale local view of it.
+  Object.assign(j, { status: 'stopped', pct: 0, barLabel: 'Stopped' });
+  renderJobsTable(); updateSummary(); updateGlobalBtns();
+  saveSingleUserFile(j);
+
+  // While watching a server-side run, cancel just THIS file's run on the
+  // server (per-file isolation) — other files keep processing.
+  if (serverViewActive && currentUser && name) {
+    fetch(window.APP_CONFIG.BACKEND_URL + '/api/server-run/cancel', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: currentUser.username, target: name })
+    }).catch(e => console.warn('Per-file cancel failed:', e));
+  }
+
+  const jobId = j.serverJobId;
   if (jobId) {
     fetch(window.APP_CONFIG.BACKEND_URL + '/stop-job/' + jobId, { method: 'POST' })
       .catch(e => console.warn('Stop-job backend call failed:', e));
@@ -2455,10 +2609,9 @@ function stopSingle(idx) {
   // If jobId isn't known yet (the /extract response hasn't returned), processJob
   // will see stopRequested as soon as it learns the job_id and cancel it there.
 
-  // Halt the Run All queue so NO further jobs auto-start after a manual stop.
-  // Jobs that were queued but never dispatched are reset to 'pending' (they
-  // show a ▶ Run button again). Jobs already running are left untouched — they
-  // keep going and must be stopped individually with their own Stop button.
+  // Local in-page engine cleanup (only relevant inside the headless worker's
+  // page, where runAllLocal drives a shared queue). Reset any of THIS run's
+  // still-queued jobs back to pending; never touch jobs from other runs.
   if (runAllQueue.length) {
     const pending = runAllQueue.splice(0);  // empties the shared queue
     pending.forEach(qIdx => {

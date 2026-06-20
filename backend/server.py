@@ -24,7 +24,8 @@ from db import (
     get_all_sites, upsert_site, delete_site,                  # ← add these
     enqueue_server_run, get_latest_server_run, get_user_session,
     claim_next_server_run, requeue_stale_running, heartbeat_server_run,
-    finish_server_run, cancel_server_run
+    finish_server_run, cancel_server_run, get_active_server_runs,
+    get_server_run_status
 )
 # PDF storage directory (persisted via Docker volume)
 PDF_STORAGE_DIR = os.path.join(STORAGE_DIR, 'pdfs')
@@ -807,9 +808,12 @@ def server_run_enqueue():
 def server_run_status():
     username = request.args.get('username')
     if not username:
-        return jsonify({"status": None})
-    run = get_latest_server_run(username)
-    return jsonify(run or {"status": None})
+        return jsonify({"status": None, "runs": []})
+    run = get_latest_server_run(username) or {"status": None}
+    # Per-file model: also return EVERY active run so the UI can track and stop
+    # each file independently instead of assuming a single batch run.
+    run["runs"] = get_active_server_runs(username)
+    return jsonify(run)
 
 
 @app.route('/api/server-run/cancel', methods=['POST', 'OPTIONS'])
@@ -820,8 +824,12 @@ def server_run_cancel():
     username = data.get('username')
     if not username:
         return jsonify({"success": False, "error": "No username"}), 400
-    n = cancel_server_run(username)
+    # target/filename = cancel only that one file's run (Stop one). Omitted =
+    # cancel every active run for the user (Stop All).
+    target = data.get('target') or data.get('filename') or None
+    n = cancel_server_run(username, target)
     log_event("SERVER_RUN_CANCELLED", username=username,
+              detail=("target=" + target) if target else "target=all",
               description="User cancelled their server-side run",
               ip_address=request.remote_addr, status="cancelled")
     return jsonify({"success": True, "cancelled": n})
@@ -852,6 +860,17 @@ def worker_claim():
               description="Headless worker claimed server-side run", status="running")
     return jsonify({"run": {"id": run["id"], "username": run["username"],
                             "target": run.get("target"), "user": session}})
+
+
+@app.route('/worker/run-status', methods=['POST'])
+def worker_run_status():
+    if not _worker_authorized():
+        return jsonify({"error": "unauthorized"}), 403
+    data = request.get_json() or {}
+    run_id = data.get("id")
+    if run_id is None:
+        return jsonify({"status": None})
+    return jsonify({"status": get_server_run_status(run_id)})
 
 
 @app.route('/worker/heartbeat', methods=['POST'])
