@@ -1237,12 +1237,14 @@ async function startApp(user) {
     if (sitesRes.ok) SITES_DATA = await sitesRes.json();
   } catch(e) { console.warn('Could not load sites from server', e); }
 
-  if (user.isAdmin) {
-    try {
-      const rulesRes = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/task-rules?admin_username=${encodeURIComponent(user.username)}`);
-      if (rulesRes.ok) TASK_RULES = await rulesRes.json();
-    } catch(e) { console.warn('Could not load task rules from server', e); }
-  }
+  // Task rules must be loaded for EVERY user (and for the headless worker, which
+  // signs in as the requesting non-admin user) — otherwise report generation has
+  // no rules and the admin-defined criteria are silently ignored. Uses the public
+  // read-only endpoint, mirroring how SITES_DATA is loaded above.
+  try {
+    const rulesRes = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/task-rules');
+    if (rulesRes.ok) TASK_RULES = await rulesRes.json();
+  } catch(e) { console.warn('Could not load task rules from server', e); }
 
   document.getElementById('subnav').style.display = 'flex';
   // Clear any data from a previous session on the same machine

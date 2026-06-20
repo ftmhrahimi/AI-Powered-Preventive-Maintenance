@@ -714,6 +714,10 @@ def get_task_rules():
         return jsonify({"error": "Admin access required"}), 403
     return jsonify(get_all_task_rules())
 
+@app.route('/api/task-rules', methods=['GET'])   # public read used by frontend/worker during validation (like /api/sites)
+def get_task_rules_public():
+    return jsonify(get_all_task_rules())
+
 @app.route('/api/admin/task-rules', methods=['POST'])
 def save_task_rule():
     data = request.get_json()
