@@ -1067,11 +1067,19 @@ async function getUserFiles(username) {
   }
 }
 
+// When set to a Set of fileNames, saveUserFiles persists ONLY those files.
+// The headless worker uses this so that several concurrent worker pages — each
+// processing a different file but each holding the full file list — never
+// overwrite each other's progress in the shared backend store. null = save all
+// (the human page, which is the sole owner of its own view).
+let __saveScope = null;
+
 async function saveUserFiles() {
   if (!currentUser) return;
   const username = currentUser.username;
   const files = jobs
     .filter(j => !j._noFile)
+    .filter(j => !__saveScope || (j.file && __saveScope.has(j.file.name)))
     .map(j => ({
       fileName: j.file.name,
       taskId: j.taskId,
@@ -1083,6 +1091,7 @@ async function saveUserFiles() {
       parsedItems: j.parsedItems || [],
       results: _stripPhotos(j.results || [])
     }));
+  if (!files.length) return;
   try {
     await fetch(window.APP_CONFIG.BACKEND_URL + '/api/userfiles', {
       method: 'POST',
@@ -2533,6 +2542,11 @@ async function runAllLocal(targetNames) {
   // is given (single-file server run), only those files are queued.
   const onlyThese = Array.isArray(targetNames) && targetNames.length
     ? new Set(targetNames) : null;
+  // Persist ONLY the file(s) this run owns. Without this, a concurrent worker
+  // page processing a different file would write our targets back as "pending,
+  // 0%" (they are mere placeholders in that page), making progress bars reset
+  // and jump between files. Each run isolates its own persistence.
+  if (onlyThese) __saveScope = new Set(onlyThese);
   runAllQueue = [];
   jobs.forEach((j, i) => {
     if ((j.status === 'pending' || j.status === 'stopped' || j.status === 'error')
