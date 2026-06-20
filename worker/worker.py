@@ -75,6 +75,18 @@ def claim_run():
         return None
 
 
+def run_is_cancelled(username):
+    """True if the user asked to stop their current server-side run."""
+    try:
+        resp = requests.get(BACKEND_URL + "/api/server-run",
+                            params={"username": username},
+                            headers=_HEADERS, timeout=15)
+        resp.raise_for_status()
+        return (resp.json() or {}).get("status") == "cancelled"
+    except Exception:
+        return False
+
+
 def complete_run(run_id, username, status, error=None):
     try:
         _post("/worker/complete", {"id": run_id, "username": username,
@@ -107,14 +119,25 @@ class Heartbeat:
 
 
 # Conditions evaluated inside the page's own JS context.
-_PIPELINE_READY = "() => typeof runAll === 'function' && Array.isArray(jobs)"
-_HAS_PENDING = (
-    "() => Array.isArray(jobs) && jobs.length > 0 && "
-    "jobs.some(j => ['pending','stopped','error'].includes(j.status))"
-)
+# runAllLocal is the REAL in-page pipeline (runAll, in the human UI, only
+# delegates to the server — the worker must drive the actual engine).
+_PIPELINE_READY = "() => typeof runAllLocal === 'function' && Array.isArray(jobs)"
 _NONE_ACTIVE = (
     "() => Array.isArray(jobs) && "
     "!jobs.some(j => j.status === 'running' || j.status === 'pending')"
+)
+# Diagnostic snapshot of what the restored page actually sees. 'saved' is how
+# many files the backend has for this user; 'jobs' is how many were rebuilt in
+# the page; 'pending' is how many are runnable. If saved>0 but jobs==0 the PDFs
+# could not be downloaded (not in backend storage).
+_RESTORE_SNAPSHOT = (
+    "async () => {"
+    "  let saved = -1;"
+    "  try { saved = (await getUserFiles(currentUser.username)).length; } catch (e) {}"
+    "  const j = Array.isArray(jobs) ? jobs : [];"
+    "  return { saved: saved, jobs: j.length,"
+    "    pending: j.filter(x => ['pending','stopped','error'].includes(x.status)).length };"
+    "}"
 )
 
 
@@ -153,25 +176,58 @@ def process_run(browser, run):
         if last_err is not None:
             raise last_err
 
-        # Wait for the user's pending files to be restored from the backend.
-        try:
-            page.wait_for_function(_HAS_PENDING, timeout=RESTORE_TIMEOUT_MS)
-        except Exception:
+        # Wait for the user's pending files to be restored from the backend,
+        # logging what the page actually sees so failures are diagnosable.
+        restore_deadline = time.time() + (RESTORE_TIMEOUT_MS / 1000.0)
+        pending = 0
+        while time.time() < restore_deadline:
+            try:
+                snap = page.evaluate(_RESTORE_SNAPSHOT)
+            except Exception as e:
+                log.warning("run %s: restore snapshot failed: %s", run_id, e)
+                snap = None
+            if snap:
+                log.info("run %s: restore — backend_files=%s rebuilt_jobs=%s pending=%s",
+                         run_id, snap.get("saved"), snap.get("jobs"), snap.get("pending"))
+                if (snap.get("pending") or 0) > 0:
+                    pending = snap["pending"]
+                    break
+            time.sleep(2)
+        if pending == 0:
             log.info("run %s: no pending jobs to process", run_id)
             return "done", None
 
-        log.info("run %s: starting runAll()", run_id)
-        # Kick off runAll() WITHOUT awaiting its promise here. runAll() marks all
-        # queued jobs 'running' synchronously before its first await, so by the
-        # time evaluate returns the work is already in flight. We then poll for
-        # completion instead of holding a single multi-hour protocol call open.
-        page.evaluate("() => { runAll(); }")
+        target = run.get("target")
+        log.info("run %s: starting runAllLocal(target=%s)", run_id, target or "ALL")
+        # Kick off the pipeline WITHOUT awaiting its promise here. runAllLocal()
+        # marks the queued jobs 'running' synchronously before its first await,
+        # so by the time evaluate returns the work is already in flight. We then
+        # poll for completion instead of holding one multi-hour protocol call.
+        # target=None processes every pending file; otherwise only that fileName.
+        if target:
+            page.evaluate("(name) => { runAllLocal([name]); }", target)
+        else:
+            page.evaluate("() => { runAllLocal(); }")
 
-        # Wait until every job has reached a terminal state. The heartbeat thread
-        # keeps the run from being treated as stale during long batches.
-        page.wait_for_function(_NONE_ACTIVE, timeout=COMPLETION_TIMEOUT_MS)
-        log.info("run %s: completed", run_id)
-        return "done", None
+        # Poll until every job reaches a terminal state, or the user cancels.
+        deadline = time.time() + (COMPLETION_TIMEOUT_MS / 1000.0)
+        while True:
+            if run_is_cancelled(username):
+                log.info("run %s: cancellation requested — stopping", run_id)
+                try:
+                    page.evaluate("() => { stopAll(); }")
+                except Exception:
+                    pass
+                return "cancelled", None
+            try:
+                if page.evaluate(_NONE_ACTIVE):
+                    log.info("run %s: completed", run_id)
+                    return "done", None
+            except Exception as e:
+                log.warning("run %s: progress check failed: %s", run_id, e)
+            if time.time() > deadline:
+                return "failed", "completion timeout"
+            time.sleep(3)
     finally:
         context.close()
 
