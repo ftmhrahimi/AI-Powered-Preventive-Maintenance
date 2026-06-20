@@ -2893,6 +2893,32 @@ function fixPersian(text) {
   return text.split(' ').join(' ');
 }
 /* PDF parsing — identical to original */
+/* ── TEMP DIAGNOSTIC: dump raw pdf.js text fragments for a chosen PDF ──
+   Call __dumpPdfText() from the browser console, pick the PDF, then paste the
+   logged output. Defined inside the app script so it can see pdfjsLib. Safe to
+   remove later — used only to design the Persian extraction fix. */
+window.__dumpPdfText = async function () {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.pdf';
+  inp.onchange = async () => {
+    try {
+      const buf = await inp.files[0].arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      let out = '';
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const tc = await (await pdf.getPage(p)).getTextContent();
+        if (!tc.items.some(it => /[؀-ۿ]/.test(it.str))) continue;
+        out += '--- page ' + p + ' ---\n';
+        out += tc.items.filter(it => (it.str || '').trim())
+          .map(it => `"${it.str}" x=${Math.round(it.transform[4])} y=${Math.round(it.transform[5])} f=${it.fontName||''}`)
+          .join('\n') + '\n';
+      }
+      console.log(out);
+      try { await navigator.clipboard.writeText(out); console.log('✓ copied to clipboard'); } catch (e) {}
+    } catch (e) { console.error('dump failed', e); }
+  };
+  inp.click();
+};
 async function extractTasksFromPdf(pdf, isEnglish=false, signal=null) {
   const tasks = []; let taskCounter = 1;
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
