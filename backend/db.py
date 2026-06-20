@@ -433,12 +433,18 @@ def init_server_runs_table():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',  -- pending | running | done | failed
+            target TEXT,                             -- NULL = all pending; else a single fileName
             error TEXT,
             createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (username) REFERENCES users(username)
         )
     ''')
+    # Migration for databases created before the 'target' column existed.
+    try:
+        conn.execute("ALTER TABLE server_runs ADD COLUMN target TEXT")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -459,21 +465,31 @@ def get_user_session(username):
     return {"username": user['username'], "name": user['name'], "isAdmin": bool(user['is_admin'])}
 
 
-def enqueue_server_run(username):
-    """Queue a server-side run for this user. If one is already pending or
-    running, reuse it (idempotent) instead of stacking duplicates."""
+def enqueue_server_run(username, target=None):
+    """Queue a server-side run for this user. target=None means "all pending
+    files"; otherwise a single fileName. Reuses an existing pending/running run
+    with the SAME target so double-clicks don't stack duplicates."""
     conn = get_db()
     try:
-        existing = conn.execute(
-            "SELECT id, status FROM server_runs WHERE username = ? "
-            "AND status IN ('pending','running') ORDER BY id DESC LIMIT 1",
-            (username,)
-        ).fetchone()
+        if target is None:
+            existing = conn.execute(
+                "SELECT id, status FROM server_runs WHERE username = ? "
+                "AND status IN ('pending','running') AND target IS NULL "
+                "ORDER BY id DESC LIMIT 1",
+                (username,)
+            ).fetchone()
+        else:
+            existing = conn.execute(
+                "SELECT id, status FROM server_runs WHERE username = ? "
+                "AND status IN ('pending','running') AND target = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (username, target)
+            ).fetchone()
         if existing:
             return {"id": existing['id'], "status": existing['status'], "reused": True}
         cur = conn.execute(
-            "INSERT INTO server_runs (username, status) VALUES (?, 'pending')",
-            (username,)
+            "INSERT INTO server_runs (username, status, target) VALUES (?, 'pending', ?)",
+            (username, target)
         )
         conn.commit()
         return {"id": cur.lastrowid, "status": "pending", "reused": False}
@@ -482,10 +498,14 @@ def enqueue_server_run(username):
 
 
 def get_latest_server_run(username):
+    """Return the user's most relevant run for the UI: a currently running one
+    first, then the newest pending, then the newest of anything else."""
     conn = get_db()
     row = conn.execute(
-        "SELECT id, status, error, updatedAt FROM server_runs "
-        "WHERE username = ? ORDER BY id DESC LIMIT 1",
+        "SELECT id, status, target, error, updatedAt FROM server_runs "
+        "WHERE username = ? "
+        "ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, "
+        "id DESC LIMIT 1",
         (username,)
     ).fetchone()
     conn.close()
@@ -515,7 +535,7 @@ def claim_next_server_run():
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT id, username FROM server_runs WHERE status='pending' "
+            "SELECT id, username, target FROM server_runs WHERE status='pending' "
             "ORDER BY id ASC LIMIT 1"
         ).fetchone()
         if not row:
@@ -528,7 +548,7 @@ def claim_next_server_run():
         conn.commit()
         if cur.rowcount != 1:
             return None
-        return {"id": row['id'], "username": row['username']}
+        return {"id": row['id'], "username": row['username'], "target": row['target']}
     finally:
         conn.close()
 
@@ -551,3 +571,18 @@ def finish_server_run(run_id, status, error=None):
     )
     conn.commit()
     conn.close()
+
+
+def cancel_server_run(username):
+    """Mark the user's active (pending or running) run as cancelled. The worker
+    polls for this and stops the headless run at the next item boundary."""
+    conn = get_db()
+    cur = conn.execute(
+        "UPDATE server_runs SET status='cancelled', updatedAt=CURRENT_TIMESTAMP "
+        "WHERE username=? AND status IN ('pending','running')",
+        (username,)
+    )
+    conn.commit()
+    n = cur.rowcount
+    conn.close()
+    return n
