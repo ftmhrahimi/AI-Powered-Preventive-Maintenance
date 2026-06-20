@@ -441,12 +441,14 @@
         <button class="btn-pick" id="btnAddFiles" onclick="document.getElementById('fileInput').click()" style="background:var(--surface);border:0.5px solid var(--border);color:#333;">＋ Add Files</button>
         <button class="btn-pick" id="btnClearFolder" onclick="clearFolder()" style="background:#6c757d;color:white;display:none;margin-left:5px;">✕ Clear</button>
         <div id="globalRunControls" style="display:flex;gap:8px;align-items:center;">
-        <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;" title="Runs here with live progress. If you close this page mid-run, the server keeps going and finishes the rest.">▶ Run All</button>
+        <button class="btn-run" id="btnRunAll" disabled onclick="runAll()" style="background:#1a9e55;" title="Processes on the always-on server. You can lock the screen, close the tab or shut down — it finishes on its own and the results are here when you return.">▶ Run All</button>
         <button class="btn-run" id="btnStopAll" onclick="stopAll()" style="background:#dc3545;display:none;">■ Stop All</button>
         </div>
         <input type="file" id="folderInput" webkitdirectory multiple accept=".pdf" style="display:none"/>
         <input type="file" id="fileInput" multiple accept=".pdf" style="display:none"/>
       </div>
+
+      <div id="serverBanner" style="display:none;align-items:center;gap:8px;margin:10px 0;padding:10px 14px;background:#e8f4fd;border:0.5px solid #90cdf4;border-radius:10px;color:#2b6cb0;font-size:13px;font-weight:500;"></div>
 
       <div class="summary-row" id="summaryRow" style="display:none">
         <div class="stat-card"><div class="stat-num gold" id="sumTotal">0</div><div class="stat-lbl">Total Files</div></div>
@@ -1047,6 +1049,8 @@ async function saveUserFiles() {
       taskId: j.taskId,
       status: j.status === 'running' ? 'pending' : j.status,
       confirmation: j.confirmation ?? null,
+      pct: j.pct ?? null,
+      barLabel: j.barLabel ?? null,
       parsedHeader: j.parsedHeader || {},
       parsedItems: j.parsedItems || [],
       results: _stripPhotos(j.results || [])
@@ -1247,40 +1251,20 @@ if (isAdmin) {
     const savedFiles = await getUserFiles(user.username);
     if (!savedFiles.length) return;
 
+    // Build the job rows IMMEDIATELY from metadata (no PDF download yet) so the
+    // page is usable right away — downloading every PDF up-front is what made
+    // sign-in slow. The actual PDF bytes are fetched lazily in the background
+    // (see below); they are only needed locally for re-uploads, and the files
+    // already live in backend storage, so the server can run without them.
     const restoredJobs = [];
-
     for (const saved of savedFiles) {
       const name = saved.fileName;
       if (!name) continue;
-
-      let file = null;
-      try {
-        const stored = await idbGet(`pdf_${user.username}_${name}`);
-        if (stored) file = storableToFile(stored);
-      } catch(e) {}
-
-      if (!file) {
-        try {
-          const res = await fetch(
-            window.APP_CONFIG.BACKEND_URL +
-            `/api/pdfs/download?username=${encodeURIComponent(user.username)}&filename=${encodeURIComponent(name)}`
-          );
-          if (res.ok) {
-            const blob = await res.blob();
-            const buffer = await blob.arrayBuffer();
-            const stored = { name, type: 'application/pdf', size: buffer.byteLength, data: buffer };
-            await idbSave(`pdf_${user.username}_${name}`, stored).catch(() => {});
-            file = storableToFile(stored);
-          }
-        } catch(e) { console.error('PDF download failed:', e); }
-      }
-
-      if (!file) continue;
-
       let status = saved.status || 'pending';
       if (status === 'running') status = 'pending';
       restoredJobs.push({
-        file,
+        file: { name },          // lightweight placeholder until the PDF loads
+        _needsFile: true,
         taskId:       saved.taskId       || name.replace(/\.pdf$/i, ''),
         status,
         pct:          status === 'done'  ? 100 :
@@ -1298,7 +1282,42 @@ if (isAdmin) {
       });
     }
 
+    // Lazily hydrate the real File objects in the background (IndexedDB first,
+    // then backend), a few at a time, without blocking sign-in.
+    const _hydrateFiles = (targetJobs) => {
+      (async () => {
+        const CONC = 4;
+        for (let s = 0; s < targetJobs.length; s += CONC) {
+          await Promise.all(targetJobs.slice(s, s + CONC).map(async (job) => {
+            const name = job.file.name;
+            let file = null;
+            try {
+              const stored = await idbGet(`pdf_${user.username}_${name}`);
+              if (stored) file = storableToFile(stored);
+            } catch(e) {}
+            if (!file) {
+              try {
+                const res = await fetch(
+                  window.APP_CONFIG.BACKEND_URL +
+                  `/api/pdfs/download?username=${encodeURIComponent(user.username)}&filename=${encodeURIComponent(name)}`
+                );
+                if (res.ok) {
+                  const blob = await res.blob();
+                  const buffer = await blob.arrayBuffer();
+                  const stored = { name, type: 'application/pdf', size: buffer.byteLength, data: buffer };
+                  await idbSave(`pdf_${user.username}_${name}`, stored).catch(() => {});
+                  file = storableToFile(stored);
+                }
+              } catch(e) { /* file stays a placeholder; it's still in backend storage */ }
+            }
+            if (file) { job.file = file; job._needsFile = false; }
+          }));
+        }
+      })();
+    };
+
     if (restoredJobs.length > 0 && jobs.length === 0) {
+      _hydrateFiles(restoredJobs);
       jobs = restoredJobs;
       document.getElementById('dirPath').textContent = `${jobs.length} file${jobs.length !== 1 ? 's' : ''} restored`;
       document.getElementById('dirPath').classList.remove('empty');
@@ -1310,6 +1329,20 @@ if (isAdmin) {
   } catch(e) {
     console.error('Could not restore session:', e);
   }
+
+  // If a server-side run is still in flight for this user (e.g. they locked the
+  // screen, signed out, or closed the tab while it was processing), resume
+  // watching it so the table reflects live progress instead of "Waiting…".
+  try {
+    // The headless server worker must NOT watch — it IS the engine.
+    if (!window.__PM_HEADLESS_WORKER && currentUser && !currentUser.isAdmin && jobs.length) {
+      const r  = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/server-run?username=${encodeURIComponent(currentUser.username)}`);
+      const rd = await r.json();
+      if (rd && (rd.status === 'pending' || rd.status === 'running')) {
+        startServerRunView();
+      }
+    }
+  } catch(e) { /* no active run, or backend unreachable — ignore */ }
 }
 
 async function _migrateLocalStorageReports(username) {
@@ -2013,12 +2046,12 @@ const reportHtml = job.status === 'done'
       if (job.status === 'running') {
         ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="stopSingle(${idx})" style="background:#fff0f0;color:#dc3545;border-color:#f5b8b8;">■ Stop</button></div>`;
       } else if (job.status === 'done') {
-        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runSingle(${idx})">↺ Re-run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
+        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runServerSingle(${idx})">↺ Re-run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
         } else if (job.status === 'error' || job.status === 'stopped') {
             const canRun = !job._noFile;
-            ctlHtml = `<div class="col-ctl-wrap">${canRun ? `<button class="btn-job-run" onclick="runSingle(${idx})">↺ Re-run</button>` : `<span style="font-size:10px;color:var(--gray)">Re-select file</span>`}<button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
+            ctlHtml = `<div class="col-ctl-wrap">${canRun ? `<button class="btn-job-run" onclick="runServerSingle(${idx})">↺ Re-run</button>` : `<span style="font-size:10px;color:var(--gray)">Re-select file</span>`}<button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
       } else {
-        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runSingle(${idx})">▶ Run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
+        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runServerSingle(${idx})">▶ Run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
       }
       return `<tr>
         <td class="col-id" style="font-family:var(--mono);font-size:12px;font-weight:500;">${escHtml(job.file.name)}</td>
@@ -2057,11 +2090,11 @@ function updateGlobalBtns() {
   const btnRun    = document.getElementById('btnRunAll');
   const btnStop   = document.getElementById('btnStopAll');
 
-  btnRun.style.display = (runAllActive || isAnyRunning) ? 'none' : '';
+  btnRun.style.display = (runAllActive || isAnyRunning || serverViewActive) ? 'none' : '';
   btnRun.disabled = !hasPending;
 
-  // Stop button: show whenever ANY job is running (single or batch)
-  btnStop.style.display = isAnyRunning ? '' : 'none';
+  // Stop button: show whenever ANY job is running (single, batch, or server-side)
+  btnStop.style.display = (isAnyRunning || serverViewActive) ? '' : 'none';
 
   // Bug 5 & 6 visibility
   const hasJobs = jobs.length > 0;
@@ -2079,53 +2112,227 @@ function updateGlobalBtns() {
   if (btnAdd) btnAdd.disabled = false;
 }
 
-/* ── Server hand-off ─────────────────────────────────────────────────────
-   "Run All" runs here in the browser with live progress. But if the user
-   closes the page / shuts down mid-run, the work would normally freeze. While
-   a run is active we arm a hand-off: on page unload we ask the always-on
-   server to finish the rest. The server opens this exact same page in a
-   headless browser, restores the still-pending files and completes them — so
-   the output is identical, it just no longer depends on the browser staying
-   open. Each step is already persisted to the backend, so nothing is lost. */
-let runHandoffArmed = false;
+/* ── Server-side run (engine = server) ──────────────────────────────────
+   Clicking "Run All" no longer processes inside this browser. It asks the
+   always-on server to do the work and then just *watches* progress. So
+   locking the screen, sleeping, closing the tab or shutting the computer
+   down no longer interrupts anything — the server finishes on its own and
+   the results are here when you come back (even after sign-out / sign-in). */
+let serverViewActive = false;
+let serverRunTarget  = null;   // null = whole queue; else the single fileName being run
 
-function enqueueServerHandoff() {
-  // When THIS page is the headless worker on the server, it must not enqueue
-  // another server run on unload — the worker manages continuation itself.
-  if (window.__PM_HEADLESS_WORKER) return;
-  if (!runHandoffArmed || !currentUser) return;
-  const incomplete = jobs.some(j =>
-    j.status === 'pending' || j.status === 'running' ||
-    j.status === 'stopped' || j.status === 'error');
-  if (!incomplete) return;
-  try {
-    const url  = window.APP_CONFIG.BACKEND_URL + '/api/server-run';
-    const blob = new Blob([JSON.stringify({ username: currentUser.username })],
-                          { type: 'application/json' });
-    // sendBeacon survives the page being torn down (unlike fetch).
-    navigator.sendBeacon(url, blob);
-  } catch (e) { /* best effort — nothing else we can do while unloading */ }
+// Upload the given jobs' PDFs to backend storage WITH visible per-file feedback.
+// The server's headless browser has an empty IndexedDB, so it can only get each
+// PDF by downloading it from the backend — if a file isn't there, the worker
+// finds "no pending jobs" and does nothing. Showing "Uploading…" also makes it
+// obvious to the user that something is happening before the run starts.
+async function uploadJobsToServer(targetJobs) {
+  for (const j of targetJobs) {
+    j.aborted = false; j.status = 'running'; j.pct = 10;
+    // Placeholders / no-file jobs already live in backend storage, so the
+    // server can fetch them directly — no local re-upload needed.
+    const hasRealFile = j.file && !j._noFile && !j._needsFile && typeof j.file.arrayBuffer === 'function';
+    if (hasRealFile) {
+      j.barLabel = 'Uploading to server…';
+      renderJobsTable(); updateGlobalBtns();
+      try {
+        const fd = new FormData();
+        fd.append('file', j.file);
+        fd.append('username', currentUser.username);
+        await fetch(window.APP_CONFIG.BACKEND_URL + '/api/pdfs/upload', { method: 'POST', body: fd });
+      } catch (e) { console.warn('Pre-run upload failed for', j.file && j.file.name, e); }
+    }
+    j.pct = 0; j.barLabel = 'Queued on server…';
+    renderJobsTable(); updateGlobalBtns();
+  }
 }
 
-// Fires when the tab is closed, navigated away, or hidden on shutdown.
-window.addEventListener('pagehide', enqueueServerHandoff);
+// Shared: persist state, enqueue a server run, and start watching it.
+async function startServerRun(target) {
+  await saveUserFiles();
+  try {
+    const body = { username: currentUser.username };
+    if (target) body.target = target;
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/server-run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data || !data.success) {
+      showToast('⚠ Could not start server run: ' + ((data && data.error) || 'unknown error'));
+      return false;
+    }
+    showToast('☁ Processing on the server — you can lock, close, or shut down. It will finish on its own.');
+    startServerRunView();
+    return true;
+  } catch (e) {
+    showToast('⚠ Could not reach the server. Please try again.');
+    return false;
+  }
+}
 
-/* ── Run All ─────────────────────────────────────────────────────────── */
 async function runAll() {
+  if (!currentUser) return;
+  const pendingJobs = jobs.filter(j =>
+    j.status === 'pending' || j.status === 'stopped' || j.status === 'error');
+  if (!pendingJobs.length) { showToast('No pending files to run.'); return; }
+  await uploadJobsToServer(pendingJobs);
+  await startServerRun(null);   // null target = process the whole pending queue
+}
+
+// Per-row "Run" / "Re-run": run just this one file, on the server, so its
+// progress and result survive locking, closing, or signing out/in.
+async function runServerSingle(idx) {
+  const j = jobs[idx];
+  if (!currentUser || !j) return;
+  await uploadJobsToServer([j]);
+  await startServerRun(j.file.name);
+}
+
+// Merge the server's saved per-file state into the local table (no heavy work
+// happens here — we only reflect what the server has done so far).
+function mergeServerFiles(savedFiles) {
+  (savedFiles || []).forEach(sf => {
+    const job = jobs.find(j => j.file && j.file.name === sf.fileName);
+    if (!job) return;
+    const st = sf.status || 'pending';
+    if (st === 'done') {
+      job.status = 'done'; job.pct = 100; job.barLabel = 'Complete';
+      job.confirmation = sf.confirmation ?? job.confirmation;
+      job.parsedHeader = sf.parsedHeader || job.parsedHeader;
+      job.parsedItems  = sf.parsedItems  || job.parsedItems;
+      job.results      = sf.results      || job.results;
+      job._savedReport = true;
+    } else if (st === 'error') {
+      job.status = 'error'; job.pct = 100; job.barLabel = 'Failed';
+    } else if (st === 'stopped') {
+      job.status = 'stopped'; job.pct = 0; job.barLabel = 'Stopped';
+    } else { // 'pending' — may mean "in progress" if this file is in the run
+      const inThisRun = serverViewActive &&
+        (serverRunTarget == null || serverRunTarget === sf.fileName);
+      if (inThisRun) {
+        job.status = 'running';
+        // Reflect the REAL granular progress the server saved (e.g. "Validating
+        // 3/10…", "Loading photos…", with the matching %), exactly like a local
+        // run. Falls back to a generic label only before the first update.
+        job.pct = (sf.pct != null) ? sf.pct : (job.pct || 0);
+        job.barLabel = sf.barLabel || job.barLabel || 'Processing on server…';
+      } else {
+        job.status = 'pending';
+        job.pct = (sf.pct != null) ? sf.pct : 0;
+        job.barLabel = 'Waiting…';
+      }
+    }
+  });
+}
+
+function updateServerBanner(runStatus) {
+  const el = document.getElementById('serverBanner');
+  if (!el) return;
+  const active = serverViewActive && (runStatus === 'pending' || runStatus === 'running');
+  if (active) {
+    let msg;
+    if (serverRunTarget) {
+      msg = `☁ Server is processing “${serverRunTarget}”. You can safely lock, close, or shut down this page.`;
+    } else {
+      const done = jobs.filter(j => j.status === 'done').length;
+      msg = `☁ Server is processing your files — ${done} of ${jobs.length} done. You can safely lock, close, or shut down this page.`;
+    }
+    el.style.display = 'flex';
+    el.textContent = msg;
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+// Poll the backend and reflect the server run's progress until it finishes.
+// Safe to call on page load (to resume watching an in-flight run) or right
+// after enqueuing one. Guards against running twice.
+async function startServerRunView() {
+  if (serverViewActive) return;
+  serverViewActive = true;
+  updateGlobalBtns();
+  while (serverViewActive) {
+    let runStatus = null;
+    try {
+      const r  = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/server-run?username=${encodeURIComponent(currentUser.username)}`);
+      const rd = await r.json();
+      runStatus = rd && rd.status;
+      // Capture which file(s) this run covers BEFORE merging, so the table only
+      // shows the targeted file as "processing".
+      serverRunTarget = (rd && rd.target) || null;
+      const files = await getUserFiles(currentUser.username);
+      mergeServerFiles(files);
+    } catch (e) { /* transient network hiccup — keep polling */ }
+    renderJobsTable(); updateSummary(); updateServerBanner(runStatus);
+    const anyProcessing = jobs.some(j => j.status === 'running');
+    const finished = !runStatus || runStatus === 'done' || runStatus === 'failed' || runStatus === 'cancelled';
+    if (finished && !anyProcessing) break;
+    await new Promise(res => setTimeout(res, 2000));
+  }
+  serverViewActive = false;
+  serverRunTarget  = null;
+  updateServerBanner(null);
+  renderJobsTable(); updateSummary(); updateGlobalBtns();
+}
+
+// Make sure a job has its real PDF File available (IndexedDB first, then the
+// backend). Used by the engine before processing a job that may still be a
+// placeholder from the lazy sign-in restore.
+async function ensureJobFile(job) {
+  if (job && job.file && typeof job.file.arrayBuffer === 'function' && !job._needsFile) return;
+  const name = job && job.file && job.file.name;
+  if (!name || !currentUser) return;
+  let file = null;
+  try {
+    const stored = await idbGet(`pdf_${currentUser.username}_${name}`);
+    if (stored) file = storableToFile(stored);
+  } catch(e) {}
+  if (!file) {
+    try {
+      const res = await fetch(
+        window.APP_CONFIG.BACKEND_URL +
+        `/api/pdfs/download?username=${encodeURIComponent(currentUser.username)}&filename=${encodeURIComponent(name)}`
+      );
+      if (res.ok) {
+        const blob = await res.blob();
+        const buffer = await blob.arrayBuffer();
+        const stored = { name, type: 'application/pdf', size: buffer.byteLength, data: buffer };
+        await idbSave(`pdf_${currentUser.username}_${name}`, stored).catch(() => {});
+        file = storableToFile(stored);
+      }
+    } catch(e) { console.warn('ensureJobFile download failed for', name, e); }
+  }
+  if (file) { job.file = file; job._needsFile = false; }
+}
+
+/* ── Local pipeline (the actual engine) ──────────────────────────────────
+   This is the REAL processing pipeline. The human UI no longer calls it
+   directly — the server's headless browser drives it (runAllLocal) so the
+   work continues regardless of what the user's machine does. */
+async function runAllLocal(targetNames) {
   if (runAllActive) return;
   runAllActive  = true;
   runAllStopped = false;
-  // Arm the server hand-off for the duration of this run.
-  runHandoffArmed = true;
-  showToast('▶ Processing… you can safely close this page — the server will finish any remaining files.');
 
-  // Build queue of all eligible job indices BEFORE marking them
+  // Build queue of eligible job indices BEFORE marking them. When targetNames
+  // is given (single-file server run), only those files are queued.
+  const onlyThese = Array.isArray(targetNames) && targetNames.length
+    ? new Set(targetNames) : null;
   runAllQueue = [];
   jobs.forEach((j, i) => {
-    if (j.status === 'pending' || j.status === 'stopped' || j.status === 'error') {
+    if ((j.status === 'pending' || j.status === 'stopped' || j.status === 'error')
+        && (!onlyThese || onlyThese.has(j.file.name))) {
       runAllQueue.push(i);
     }
   });
+
+  // The headless worker starts with an empty cache, so queued jobs may still be
+  // lightweight placeholders. Make sure each has its real PDF (download it)
+  // before processing — processJob needs job.file.arrayBuffer().
+  for (const idx of runAllQueue) {
+    await ensureJobFile(jobs[idx]);
+  }
 
   // Immediately mark ALL queued jobs as "running" in the UI (visual indicator)
   runAllQueue.forEach(idx => {
@@ -2168,9 +2375,6 @@ async function runAll() {
 
   runAllActive  = false;
   runAllStopped = false;
-  // The local run finished (or was stopped) with the page still open, so there
-  // is nothing for the server to take over — disarm the hand-off.
-  runHandoffArmed = false;
   jobs.forEach((j, i) => {
     if (j.status === 'running') { j.aborted = true; setJob(i, {status:'stopped', pct:0, barLabel:'Stopped'}); }
   });
@@ -2183,8 +2387,19 @@ async function checkJobPause(idx) {
 async function stopAll() {
   runAllStopped = true;
   runAllActive  = false;
-  // An explicit stop must NOT be resumed by the server on page unload.
-  runHandoffArmed = false;
+
+  // If we are watching a server-side run, ask the server to cancel it and stop
+  // polling. The worker stops the headless run at the next item boundary.
+  if (serverViewActive && currentUser) {
+    serverViewActive = false;
+    updateServerBanner(null);
+    try {
+      await fetch(window.APP_CONFIG.BACKEND_URL + '/api/server-run/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: currentUser.username })
+      });
+    } catch (e) { /* best effort */ }
+  }
 
   // Hard-stop all running jobs immediately in the UI
   jobs.forEach((j, i) => {
@@ -2223,6 +2438,9 @@ async function runSingle(idx) {
 }
 
 function stopSingle(idx) {
+  // While watching a server-side run, the work is happening on the server, so
+  // "Stop" must cancel the run there (there is no local job to abort).
+  if (serverViewActive) { stopAll(); return; }
   jobs[idx].aborted = true;
   jobs[idx].paused  = false;
   jobs[idx].stopRequested = true;   // remember intent even if job_id isn't known yet
