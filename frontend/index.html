@@ -2142,9 +2142,11 @@ const reportHtml = job.status === 'done'
         ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runServerSingle(${idx})">↺ Re-run</button>${delBtn}</div>`;
         } else if (job.status === 'error' || job.status === 'stopped') {
             const canRun = !job._noFile;
-            ctlHtml = `<div class="col-ctl-wrap">${canRun ? `<button class="btn-job-run" onclick="runServerSingle(${idx})">↺ Re-run</button>` : `<span style="font-size:10px;color:var(--gray)">Re-select file</span>`}${upHint}${delBtn}</div>`;
+            const dis = job.uploadStatus === 'uploading' ? 'disabled' : '';
+            ctlHtml = `<div class="col-ctl-wrap">${canRun ? `<button class="btn-job-run" ${dis} onclick="runServerSingle(${idx})">↺ Re-run</button>` : `<span style="font-size:10px;color:var(--gray)">Re-select file</span>`}${upHint}${delBtn}</div>`;
       } else {
-        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runServerSingle(${idx})">▶ Run</button>${upHint}${delBtn}</div>`;
+        const dis = job.uploadStatus === 'uploading' ? 'disabled' : '';
+        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" ${dis} onclick="runServerSingle(${idx})">▶ Run</button>${upHint}${delBtn}</div>`;
       }
       return `<tr>
         <td class="col-id" style="font-family:var(--mono);font-size:12px;font-weight:500;">${escHtml(job.file.name)}</td>
@@ -2177,14 +2179,24 @@ function updateSummary() {
 }
 
 /* ── Global buttons ──────────────────────────────────────────────────── */
+function anyUploading() {
+  return jobs.some(j => j.uploadStatus === 'uploading');
+}
+
 function updateGlobalBtns() {
   const hasPending = jobs.some(j => j.status === 'pending' || j.status === 'stopped' || j.status === 'error');
   const isAnyRunning = jobs.some(j => j.status === 'running');
+  const uploading = anyUploading();
   const btnRun    = document.getElementById('btnRunAll');
   const btnStop   = document.getElementById('btnStopAll');
 
   btnRun.style.display = (runAllActive || isAnyRunning || serverViewActive) ? 'none' : '';
-  btnRun.disabled = !hasPending;
+  // Block "Run All" while any file is still uploading — launching mid-upload
+  // corrupts the run/upload state. The button re-enables once uploads finish.
+  btnRun.disabled = !hasPending || uploading;
+  btnRun.title = uploading
+    ? 'Please wait — files are still uploading.'
+    : 'Processes on the always-on server. You can lock the screen, close the tab or shut down — it finishes on its own and the results are here when you return.';
 
   // Stop button: show whenever ANY job is running (single, batch, or server-side)
   btnStop.style.display = (isAnyRunning || serverViewActive) ? '' : 'none';
@@ -2259,6 +2271,7 @@ function uploadFile(job) {
     } finally {
       job._uploadPromise = null;
       renderJobsTable();
+      updateGlobalBtns();   // re-enable Run All once the last upload finishes
     }
   })();
   return job._uploadPromise;
@@ -2360,6 +2373,11 @@ async function runAll() {
   const pendingJobs = jobs.filter(j =>
     j.status === 'pending' || j.status === 'stopped' || j.status === 'error');
   if (!pendingJobs.length) { showToast('No pending files to run.'); return; }
+  // Never launch while a selected file is still uploading.
+  if (pendingJobs.some(j => j.uploadStatus === 'uploading')) {
+    showToast('⏳ Files are still uploading — please wait.');
+    return;
+  }
   await launchServerJobs(pendingJobs);
 }
 
@@ -2368,6 +2386,11 @@ async function runAll() {
 async function runServerSingle(idx) {
   const j = jobs[idx];
   if (!currentUser || !j) return;
+  if (j.uploadStatus === 'uploading') {
+    showToast('⏳ This file is still uploading — please wait.');
+    return;
+  }
+  if (j.uploadStatus === 'error') { retryUpload(idx); return; }
   await launchServerJobs([j]);
 }
 
