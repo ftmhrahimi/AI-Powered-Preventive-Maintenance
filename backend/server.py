@@ -24,7 +24,7 @@ from db import (
     get_all_sites, upsert_site, delete_site,                  # ← add these
     enqueue_server_run, get_latest_server_run, get_user_session,
     claim_next_server_run, requeue_stale_running, heartbeat_server_run,
-    finish_server_run
+    finish_server_run, cancel_server_run
 )
 # PDF storage directory (persisted via Docker volume)
 PDF_STORAGE_DIR = os.path.join(STORAGE_DIR, 'pdfs')
@@ -794,8 +794,10 @@ def server_run_enqueue():
     username = data.get('username')
     if not username:
         return jsonify({"success": False, "error": "No username"}), 400
-    result = enqueue_server_run(username)
+    target = data.get('target') or None  # None = all pending; else a single fileName
+    result = enqueue_server_run(username, target)
     log_event("SERVER_RUN_REQUESTED", username=username, job_id=str(result["id"]),
+              detail=("target=" + target) if target else "target=all",
               description="User requested server-side processing of pending files",
               ip_address=request.remote_addr, status=result["status"])
     return jsonify({"success": True, "id": result["id"], "status": result["status"]})
@@ -808,6 +810,21 @@ def server_run_status():
         return jsonify({"status": None})
     run = get_latest_server_run(username)
     return jsonify(run or {"status": None})
+
+
+@app.route('/api/server-run/cancel', methods=['POST', 'OPTIONS'])
+def server_run_cancel():
+    if request.method == 'OPTIONS':
+        return '', 204
+    data = request.get_json() or {}
+    username = data.get('username')
+    if not username:
+        return jsonify({"success": False, "error": "No username"}), 400
+    n = cancel_server_run(username)
+    log_event("SERVER_RUN_CANCELLED", username=username,
+              description="User cancelled their server-side run",
+              ip_address=request.remote_addr, status="cancelled")
+    return jsonify({"success": True, "cancelled": n})
 
 
 # Internal (worker-only). These paths are NOT proxied by nginx, so they are
@@ -833,7 +850,8 @@ def worker_claim():
         return jsonify({"run": None})
     log_event("SERVER_RUN_STARTED", username=run["username"], job_id=str(run["id"]),
               description="Headless worker claimed server-side run", status="running")
-    return jsonify({"run": {"id": run["id"], "username": run["username"], "user": session}})
+    return jsonify({"run": {"id": run["id"], "username": run["username"],
+                            "target": run.get("target"), "user": session}})
 
 
 @app.route('/worker/heartbeat', methods=['POST'])
