@@ -51,6 +51,10 @@ BACKEND_URL  = os.environ.get("WORKER_BACKEND_URL", "http://backend:9700").rstri
 FRONTEND_URL = os.environ.get("WORKER_FRONTEND_URL", "http://frontend").rstrip("/")
 WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "")
 POLL_SECONDS = int(os.environ.get("WORKER_POLL_SECONDS", "5"))
+# How many files to process at once (each in its own headless browser). This
+# restores the old "several files run together" behaviour now that each file is
+# an independent server-run.
+WORKER_CONCURRENCY = int(os.environ.get("WORKER_CONCURRENCY", "3"))
 HEARTBEAT_SECONDS = int(os.environ.get("WORKER_HEARTBEAT_SECONDS", "60"))
 # How long to wait for the page to restore at least one pending job before
 # assuming there is nothing to do.
@@ -245,8 +249,13 @@ def process_run(browser, run):
         context.close()
 
 
-def main():
-    log.info("worker starting — backend=%s frontend=%s", BACKEND_URL, FRONTEND_URL)
+def worker_loop(worker_id):
+    """One independent worker: its own browser, claiming and processing runs
+    one at a time. Several of these run concurrently so multiple files process
+    in parallel (each file is its own server-run, so they stay isolated)."""
+    log.info("worker[%d] starting — backend=%s frontend=%s", worker_id, BACKEND_URL, FRONTEND_URL)
+    # Each thread gets its OWN Playwright driver + browser; the sync API is not
+    # shareable across threads, so we never hand one browser to two threads.
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
@@ -263,11 +272,24 @@ def main():
                     with Heartbeat(run["id"]):
                         status, error = process_run(browser, run)
                 except Exception as e:
-                    log.exception("run %s failed", run["id"])
+                    log.exception("worker[%d] run %s failed", worker_id, run["id"])
                     status, error = "failed", str(e)
                 complete_run(run["id"], run["username"], status, error)
         finally:
             browser.close()
+
+
+def main():
+    n = max(1, WORKER_CONCURRENCY)
+    log.info("worker starting with concurrency=%d", n)
+    # The backend serialises claims (in-process lock + guarded UPDATE), so
+    # multiple loops claiming at once never grab the same run.
+    threads = [threading.Thread(target=worker_loop, args=(i,), daemon=True)
+               for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 if __name__ == "__main__":
