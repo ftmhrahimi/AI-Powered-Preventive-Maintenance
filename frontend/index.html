@@ -308,6 +308,8 @@
     @keyframes utspin{to{transform:rotate(360deg);}}
     .upload-toast .ut-bar{height:4px;background:#edf2f7;border-radius:3px;overflow:hidden;margin-top:6px;}
     .upload-toast .ut-bar-fill{height:100%;background:#1a9e55;width:0;transition:width .3s;}
+    .up-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#718096;white-space:nowrap;}
+    .up-badge.error{color:#b7791f;}
 
     /* ══ LIGHTBOX ══ */
     .lb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;align-items:center;justify-content:center;flex-direction:column;}
@@ -1315,6 +1317,8 @@ if (isAdmin) {
       restoredJobs.push({
         file: { name },          // lightweight placeholder until the PDF loads
         _needsFile: true,
+        // Restored files already live in backend storage, so they are uploaded.
+        uploadStatus: 'uploaded',
         taskId:       saved.taskId       || name.replace(/\.pdf$/i, ''),
         status,
         pct:          status === 'done'  ? 100 :
@@ -2122,16 +2126,25 @@ const reportHtml = job.status === 'done'
     ? `<span style="font-size:11px;color:#6c757d">Stopped</span>`
     : `<button class="btn-view" disabled>—</button>`;
   const fillClass = job.status==='done'?' done':job.status==='error'?' error':job.status==='stopped'?' stopped':'';
+    // Upload lifecycle is tracked independently of the run lifecycle. The only
+    // thing the run controls do with it is show an "uploading" hint and, if the
+    // one-time upload failed, offer a retry for THIS file only.
+    const upHint = job.uploadStatus === 'uploading'
+      ? `<span class="up-badge">⬆ Uploading…</span>` : '';
+    const delBtn = `<button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button>`;
     let ctlHtml = '';
       if (job.status === 'running') {
         ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="stopSingle(${idx})" style="background:#fff0f0;color:#dc3545;border-color:#f5b8b8;">■ Stop</button></div>`;
+      } else if (job.uploadStatus === 'error') {
+        // Upload failed — running is blocked until the file is on the server.
+        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="retryUpload(${idx})" style="background:#fff7e6;color:#b7791f;border-color:#f0d28a;" title="Upload failed — click to retry">⟳ Retry upload</button>${delBtn}</div>`;
       } else if (job.status === 'done') {
-        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runServerSingle(${idx})">↺ Re-run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
+        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runServerSingle(${idx})">↺ Re-run</button>${delBtn}</div>`;
         } else if (job.status === 'error' || job.status === 'stopped') {
             const canRun = !job._noFile;
-            ctlHtml = `<div class="col-ctl-wrap">${canRun ? `<button class="btn-job-run" onclick="runServerSingle(${idx})">↺ Re-run</button>` : `<span style="font-size:10px;color:var(--gray)">Re-select file</span>`}<button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
+            ctlHtml = `<div class="col-ctl-wrap">${canRun ? `<button class="btn-job-run" onclick="runServerSingle(${idx})">↺ Re-run</button>` : `<span style="font-size:10px;color:var(--gray)">Re-select file</span>`}${upHint}${delBtn}</div>`;
       } else {
-        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runServerSingle(${idx})">▶ Run</button><button class="btn-job-delete" onclick="removeJob(${idx})" title="Remove">🗑</button></div>`;
+        ctlHtml = `<div class="col-ctl-wrap"><button class="btn-job-run" onclick="runServerSingle(${idx})">▶ Run</button>${upHint}${delBtn}</div>`;
       }
       return `<tr>
         <td class="col-id" style="font-family:var(--mono);font-size:12px;font-weight:500;">${escHtml(job.file.name)}</td>
@@ -2205,24 +2218,73 @@ let serverViewActive = false;
 let serverActiveTargets = new Set(); // fileNames with an active (pending/running) server run
 const startingFiles     = new Set(); // fileNames the user just launched, run not yet enqueued
 
-// Does this job need its PDF re-uploaded? Placeholders / no-file jobs already
-// live in backend storage, so the server can fetch them directly.
-function jobNeedsUpload(j) {
+// ── Upload lifecycle (separate from the run lifecycle) ───────────────────
+// job.uploadStatus is one of: 'uploading' | 'uploaded' | 'error'. It is set
+// once at file selection (handleFiles) and only ever re-driven by an explicit
+// retry — never by Run/Stop/Run All/Stop All.
+
+// Does this job have local PDF bytes that still need pushing to the server?
+// Placeholders restored from the backend (_needsFile) and no-file jobs are
+// already in backend storage, so they count as uploaded.
+function jobHasLocalBytes(j) {
   return !!(j && j.file && !j._noFile && !j._needsFile &&
             typeof j.file.arrayBuffer === 'function');
 }
 
-// Upload a single job's PDF to backend storage. The server's headless browser
-// has an empty IndexedDB, so it can only get each PDF by downloading it from the
-// backend — if a file isn't there, the worker finds "no pending jobs".
-async function uploadJobPdf(j) {
-  if (!jobNeedsUpload(j)) return;
-  try {
-    const fd = new FormData();
-    fd.append('file', j.file);
-    fd.append('username', currentUser.username);
-    await fetch(window.APP_CONFIG.BACKEND_URL + '/api/pdfs/upload', { method: 'POST', body: fd });
-  } catch (e) { console.warn('Pre-run upload failed for', j.file && j.file.name, e); }
+// Upload ONE job's PDF to backend storage exactly once. Returns a promise that
+// resolves true on success / false on failure. The in-flight promise is cached
+// on the job so a Run triggered mid-upload reuses it instead of starting a new
+// upload. The server's headless browser has an empty IndexedDB, so it can only
+// get each PDF by downloading it from the backend.
+function uploadFile(job) {
+  if (!currentUser || !job || job._noFile) { if (job) job.uploadStatus = 'uploaded'; return Promise.resolve(true); }
+  if (!jobHasLocalBytes(job)) { job.uploadStatus = 'uploaded'; return Promise.resolve(true); }
+  if (job.uploadStatus === 'uploaded') return Promise.resolve(true);
+  if (job.uploadStatus === 'uploading' && job._uploadPromise) return job._uploadPromise;
+
+  job.uploadStatus = 'uploading';
+  job._uploadPromise = (async () => {
+    try {
+      const fd = new FormData();
+      fd.append('file', job.file);
+      fd.append('username', currentUser.username);
+      const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/pdfs/upload', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      job.uploadStatus = 'uploaded';
+      return true;
+    } catch (e) {
+      console.warn('Upload failed for', job.file && job.file.name, e);
+      job.uploadStatus = 'error';
+      return false;
+    } finally {
+      job._uploadPromise = null;
+      renderJobsTable();
+    }
+  })();
+  return job._uploadPromise;
+}
+
+// Used by the run path: make sure the file is on the server WITHOUT ever
+// kicking off a fresh upload. Reuses a completed upload, waits for an in-flight
+// one, and reports failure (so the caller can surface retry) for the rest.
+async function ensureUploaded(job) {
+  if (!job) return false;
+  if (job.uploadStatus === 'uploaded' || !jobHasLocalBytes(job)) return true;
+  if (job.uploadStatus === 'uploading' && job._uploadPromise) return job._uploadPromise;
+  return false; // 'error' or never-started — do NOT auto re-upload from a run
+}
+
+// Explicit, user-initiated retry for a single failed upload. This is the ONLY
+// place (besides initial selection) where an upload is (re)started.
+async function retryUpload(idx) {
+  const job = jobs[idx];
+  if (!job) return;
+  showUploadProgress(0, 1);
+  const ok = await uploadFile(job);
+  showUploadProgress(ok ? 1 : 0, 1);
+  if (ok) { hideUploadProgress(1200); showToast('✓ Upload complete'); }
+  else    { hideUploadProgress(); showToast('⚠ Upload failed again — check your connection.'); }
+  renderJobsTable();
 }
 
 // Enqueue ONE file as its own server run (per-file isolation: each file can be
@@ -2255,9 +2317,8 @@ function markJobLaunching(j) {
 }
 
 // Launch the given jobs on the server: show all of them as started at once,
-// begin watching, then upload + enqueue each one in parallel. The "uploading"
-// status is surfaced as a separate bottom-right notification, not in the
-// per-file process log.
+// begin watching, then enqueue each one's run in parallel. Uploading is NOT
+// part of this — it happened once at selection time and is reused here.
 async function launchServerJobs(targetJobs) {
   if (!currentUser || !targetJobs.length) return;
 
@@ -2272,28 +2333,26 @@ async function launchServerJobs(targetJobs) {
   startServerRunView();
   showToast('☁ Processing on the server — you can lock, close, or shut down. It will finish on its own.');
 
-  // 3. Upload (in parallel) + enqueue each file's own run as soon as its PDF
-  //    is up. Upload progress is shown as a compact, separate notification.
-  const uploads = targetJobs.filter(jobNeedsUpload);
-  let uploaded = 0;
-  if (uploads.length) showUploadProgress(0, uploads.length);
-
+  // 3. Enqueue each file's own run. Uploading is NOT done here — it already
+  //    happened once at selection time. We only make sure the file is on the
+  //    server (reusing the existing upload, waiting if one is still in flight);
+  //    a file whose one-time upload failed is surfaced for retry, not re-run.
   await Promise.all(targetJobs.map(async (j) => {
     const name = j.file.name;
-    if (jobNeedsUpload(j)) {
-      await uploadJobPdf(j);
-      // The user may have stopped this file while it was still uploading.
-      if (!startingFiles.has(name)) return;
-      uploaded++;
-      showUploadProgress(uploaded, uploads.length);
+    const ready = await ensureUploaded(j);
+    if (!startingFiles.has(name)) return;       // stopped mid-launch — don't enqueue
+    if (!ready) {                               // upload missing/failed — needs retry
+      startingFiles.delete(name);
+      serverActiveTargets.delete(name);
+      if (j.uploadStatus !== 'error') j.uploadStatus = 'error';
+      Object.assign(j, { status: 'pending', pct: 0, barLabel: 'Upload needed — retry' });
+      renderJobsTable(); updateGlobalBtns();
+      return;
     }
-    if (!startingFiles.has(name)) return; // stopped mid-launch — don't enqueue
     await enqueueServerRun(name);
     serverActiveTargets.add(name);
     startingFiles.delete(name);
   }));
-
-  if (uploads.length) showUploadProgress(uploads.length, uploads.length);
 }
 
 async function runAll() {
@@ -3448,6 +3507,9 @@ async function handleFiles(newFiles) {
     file: f,
     taskId: f.name.replace(/\.pdf$/i, ''),
     status: 'pending',
+    // Upload lifecycle, tracked separately from run status. Upload starts now,
+    // at selection time — exactly once — not when the file is run.
+    uploadStatus: 'uploading',
     pct: 0,
     barLabel: 'Waiting…',
     confirmation: null,
@@ -3470,22 +3532,29 @@ async function handleFiles(newFiles) {
   sessionStorage.setItem('lastFolderLabel', document.getElementById('dirPath').textContent);
   if (!currentUser) return;
   const _user = currentUser;
-  (async () => {
-    try {
-      for (const f of toAdd) {
-        const storable = await fileToStorable(f);
-        await idbSave(`pdf_${_user.username}_${f.name}`, storable);
 
-        const formData = new FormData();
-        formData.append('file', f);
-        formData.append('username', _user.username);
-        await fetch(window.APP_CONFIG.BACKEND_URL + '/api/pdfs/upload', {
-          method: 'POST',
-          body: formData
-        });
-      }
-      await saveUserFiles();
-    } catch(e) { console.error('Save error:', e); }
+  // Upload all newly selected files ONCE, in parallel, with a compact progress
+  // notification. Cache the bytes in IndexedDB too. The run/stop lifecycle never
+  // re-uploads — it reuses the result of this upload.
+  (async () => {
+    const newlyAdded = newJobs;
+    let uploaded = 0, failed = 0;
+    showUploadProgress(0, newlyAdded.length);
+    await Promise.all(newlyAdded.map(async (job) => {
+      try {
+        const storable = await fileToStorable(job.file);
+        await idbSave(`pdf_${_user.username}_${job.file.name}`, storable);
+      } catch (e) { console.error('IDB cache failed:', e); }
+      const ok = await uploadFile(job);
+      if (ok) uploaded++; else failed++;
+      showUploadProgress(uploaded, newlyAdded.length);
+      renderJobsTable();
+    }));
+    if (failed) {
+      hideUploadProgress();
+      showToast(`⚠ ${failed} file${failed > 1 ? 's' : ''} failed to upload — use ⟳ Retry on those rows.`);
+    }
+    try { await saveUserFiles(); } catch (e) { console.error('Save error:', e); }
   })();
 }
 
