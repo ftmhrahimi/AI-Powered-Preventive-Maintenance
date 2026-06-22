@@ -98,6 +98,11 @@ Edit `/opt/pm-portal/.env` and check:
 - `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` — **change these**; they are both the
   MinIO root credentials and the backend's access credentials.
 - `ADMIN_PASSWORD` — initial admin login for the portal; change it.
+- `BACKUP_ADMIN_USERNAME` / `BACKUP_ADMIN_PASSWORD` *(recommended)* — seed a single
+  **backup admin** account so a locked-out primary admin can be recovered in-app
+  (one admin can reset the other from the Users tab). Created on startup if it
+  doesn't already exist; leave unset to skip. Keep these credentials separate and
+  safe.
 - `ALLOWED_ORIGIN=http://10.130.154.133` — the URL users open in the browser.
 - `WORKER_TOKEN` *(optional)* — shared secret for the headless worker's internal
   endpoints. The worker endpoints (`/worker/*`) are already unreachable from

@@ -273,6 +273,25 @@ Notes:
 - This is the supported way to handle both **forgotten passwords** and **routine
   password changes** — the user asks an admin, who sets a new one here.
 
+### What if an admin is locked out?
+There are exactly **two admin accounts**: the **primary admin** and a single
+**backup admin**. There is intentionally **no way for regular users to create or
+remove admins**.
+- If one admin forgets their password, the **other admin signs in and resets it**
+  from the Users tab (an admin can reset any account, including another admin).
+- Keep the backup admin's credentials safe and separate from the primary's so you
+  always have a way back in.
+
+**Setting up the backup admin (one‑time, by the operator):** add these to the
+backend's `.env` and restart the backend:
+```
+BACKUP_ADMIN_USERNAME=backupadmin
+BACKUP_ADMIN_PASSWORD=<a strong password>
+```
+The account is seeded on startup if it doesn't already exist. (If **both** admins
+are ever lost, recovery requires server/database access — see the operator
+runbook.)
+
 > **Security:** choose a strong temporary password, deliver it privately, and
 > encourage the user not to reuse it elsewhere. (The app does not currently force
 > a change‑on‑first‑login, so treat the value as sensitive.)

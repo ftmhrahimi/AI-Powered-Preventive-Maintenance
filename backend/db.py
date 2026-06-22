@@ -58,6 +58,23 @@ def init_db():
             "INSERT INTO users (username, name, password_hash, is_admin) VALUES (?, ?, ?, ?)",
             (admin_user, "System Admin", h, 1)
         )
+
+    # Create ONE backup (recovery) admin, only if configured via .env. This is the
+    # sole other admin account; there is no UI to create or remove admins, so
+    # regular users can never gain admin access. If either admin is locked out,
+    # the other signs in and resets it from the Users tab. Seeded once (skipped if
+    # the account already exists), so an existing deployment just needs the two
+    # env vars set + a restart.
+    backup_user = os.getenv("BACKUP_ADMIN_USERNAME")
+    backup_pass = os.getenv("BACKUP_ADMIN_PASSWORD")
+    if backup_user and backup_pass and backup_user != admin_user:
+        cursor.execute("SELECT * FROM users WHERE username = ?", (backup_user,))
+        if not cursor.fetchone():
+            h = hashlib.sha256(backup_pass.encode()).hexdigest()
+            cursor.execute(
+                "INSERT INTO users (username, name, password_hash, is_admin) VALUES (?, ?, ?, ?)",
+                (backup_user, "Backup Admin", h, 1)
+            )
         
 # Migration: add status column to older databases that lack it
     try:
