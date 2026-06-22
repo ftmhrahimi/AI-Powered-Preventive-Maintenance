@@ -1213,9 +1213,11 @@ function switchAuthTab(tab) {
   hideAuthError();
 }
 
-function showAuthError(msg) {
+function showAuthError(msg, hint) {
   const el = document.getElementById('authError');
-  el.textContent = msg; el.classList.add('show');
+  el.innerHTML = escHtml(msg) +
+    (hint ? `<div style="margin-top:6px;font-size:11px;opacity:.85;">${escHtml(hint)}</div>` : '');
+  el.classList.add('show');
 }
 function hideAuthError() {
   document.getElementById('authError').classList.remove('show');
@@ -1237,7 +1239,15 @@ async function doLogin(u, p) {
       setSessionUser(data.user);
       startApp(data.user);
     } else {
-      showAuthError(data.error);
+      // Wrong username/password: tell the user what to do (there is no
+      // self-service reset — an admin must reset a forgotten password).
+      const isAuthFail = res.status === 401 || /invalid|credential|password|user/i.test(data.error || '');
+      if (isAuthFail) {
+        showAuthError('Incorrect username or password.',
+          'Forgot your password? Ask an administrator to reset it. — رمز عبور را فراموش کرده‌اید؟ از مدیر بخواهید آن را بازنشانی کند.');
+      } else {
+        showAuthError(data.error || 'Login failed. Please try again.');
+      }
     }
   } catch (err) {
     showAuthError('Login failed. Server unreachable.');
