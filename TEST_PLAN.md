@@ -239,8 +239,8 @@ last saw.
 | B5‑1 | `curl "http://localhost:9700/api/admin/reports?admin_username=someuser"` (non‑admin) | Rejected (403) |
 | B5‑2 | `curl -X POST http://localhost:9700/api/admin/reset-password -H 'Content-Type: application/json' -d '{"admin_username":"notadmin","username":"x","newPassword":"abcdef"}'` | Rejected (403) |
 | B5‑3 | `curl "http://localhost:9700/api/admin/users?admin_username=notadmin"` | Rejected (403) |
-| B5‑4 | `curl -X POST http://localhost:9700/worker/claim` (no/invalid `X-Worker-Token`, if a token is configured) | Rejected (403) |
-| B5‑5 | Confirm `/worker/*` is **not** reachable through the public frontend URL | Not proxied by nginx (internal only) |
+| B5‑4 | `curl -X POST http://localhost:9700/worker/claim` (no/invalid `X-Worker-Token`) | If `WORKER_TOKEN` is set: **403**. If it's empty: returns a claim (a finding — set `WORKER_TOKEN`). |
+| B5‑5 | From the **public** URL users open (the frontend, e.g. `:8080`): `curl -i http://<host>:8080/worker/claim` | Returns the app's **index.html** (SPA fallback) or 404 — **never** a worker JSON `{"run":...}`. nginx must not proxy `/worker/*`. |
 | B5‑6 | `curl http://localhost:9700/api/task-rules` | Returns the rules JSON (public read used by the worker) |
 | B5‑7 | Inspect the DB `users` table | Passwords are **hashed**, never plaintext |
 
