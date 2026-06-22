@@ -1244,7 +1244,7 @@ async function doLogin(u, p) {
       const isAuthFail = res.status === 401 || /invalid|credential|password|user/i.test(data.error || '');
       if (isAuthFail) {
         showAuthError('Incorrect username or password.',
-          'Forgot your password? Ask an administrator to reset it. — رمز عبور را فراموش کرده‌اید؟ از مدیر بخواهید آن را بازنشانی کند.');
+          'Forgot your password? Ask an administrator to reset it.');
       } else {
         showAuthError(data.error || 'Login failed. Please try again.');
       }
