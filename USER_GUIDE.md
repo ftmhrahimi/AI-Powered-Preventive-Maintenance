@@ -265,14 +265,12 @@ design; password changes are admin‑driven.
 4. Click **🔑 Reset Password**. You'll see a confirmation when it succeeds.
 5. Give the new password to the user through a **trusted channel** (in person, a
    secure message) and ask them to keep it private.
-
 Notes:
 - The table on the same tab lists all users (username, name, role) for reference.
 - Every reset is recorded in the **Audit Log** (event `ADMIN_PASSWORD_RESET`,
   showing which admin reset which user).
 - This is the supported way to handle both **forgotten passwords** and **routine
   password changes** — the user asks an admin, who sets a new one here.
-
 
 ## 2.6 Admin responsibilities checklist
 - Keep **Sites** up to date so GPS checks are meaningful.
@@ -281,9 +279,7 @@ Notes:
 - Use the **Audit Log** to track who did what.
 - **Reset user passwords** in the **Users** tab when someone is locked out.
 - Manage the admin password and any user issues.
-
 ---
-
 # Part 3 — Reference
 
 ## 3.1 Understanding verdicts and badges
