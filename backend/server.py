@@ -19,6 +19,7 @@ from config import (
 from db import (
     init_db, save_report, get_user_reports, get_all_reports,
     delete_report, delete_report_by_filename, register_user, login_user, is_admin_user,
+    list_users, admin_set_password,
     save_user_file, get_user_files, delete_user_file, delete_all_user_files,
     get_all_task_rules, upsert_task_rule, delete_task_rule,   # ← add these
     get_all_sites, upsert_site, delete_site,                  # ← add these
@@ -717,6 +718,38 @@ def get_task_rules():
 @app.route('/api/task-rules', methods=['GET'])   # public read used by frontend/worker during validation (like /api/sites)
 def get_task_rules_public():
     return jsonify(get_all_task_rules())
+
+
+# ── Admin: user management (reset password) ──
+@app.route('/api/admin/users', methods=['GET'])
+def admin_list_users():
+    admin_username = request.args.get('admin_username')
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
+    return jsonify(list_users())
+
+@app.route('/api/admin/reset-password', methods=['POST', 'OPTIONS'])
+def admin_reset_password():
+    if request.method == 'OPTIONS':
+        return '', 204
+    data = request.get_json() or {}
+    admin_username = data.get('admin_username')
+    if not is_admin_user(admin_username):
+        return jsonify({"success": False, "error": "Admin access required"}), 403
+    username = (data.get('username') or '').strip()
+    new_password = data.get('newPassword') or ''
+    if not username:
+        return jsonify({"success": False, "error": "No username"}), 400
+    if len(new_password) < 6:
+        return jsonify({"success": False, "error": "Password must be at least 6 characters"}), 400
+    ok = admin_set_password(username, new_password)
+    if not ok:
+        return jsonify({"success": False, "error": "User not found"}), 404
+    log_event("ADMIN_PASSWORD_RESET", username=admin_username,
+              detail=f"target={username}",
+              description=f"Admin reset password for user '{username}'",
+              ip_address=request.remote_addr, status="info")
+    return jsonify({"success": True})
 
 @app.route('/api/admin/task-rules', methods=['POST'])
 def save_task_rule():

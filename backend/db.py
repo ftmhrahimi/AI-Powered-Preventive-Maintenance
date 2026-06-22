@@ -100,6 +100,30 @@ def login_user(username, password):
     ).fetchone()
     conn.close()
     return dict(user) if user else None
+
+def list_users():
+    """Return all users (no password hashes) for the admin user-management UI."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT username, name, is_admin FROM users ORDER BY is_admin DESC, username ASC"
+    ).fetchall()
+    conn.close()
+    return [{"username": r["username"], "name": r["name"], "isAdmin": bool(r["is_admin"])} for r in rows]
+
+def admin_set_password(username, new_password):
+    """Set (reset) a user's password. Used by the admin reset-password tool.
+    Returns True if a matching user was updated."""
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "UPDATE users SET password_hash = ? WHERE username = ?",
+            (hash_password(new_password), username)
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
 def is_admin_user(username):
     if not username:
         return False

@@ -212,6 +212,17 @@ security, and deployment.
 | ST‑3 | Delete a site | Removed |
 | ST‑4 | GPS validation uses it | Process a report for that site; GPS check uses the stored coordinates |
 
+## 13a. Users — password reset (admin)
+
+| ID | Steps | Expected |
+|----|-------|----------|
+| USR‑1 | Open **👤 Users** tab as admin | User list (username, name, role) loads; reset form visible |
+| USR‑2 | Pick a user, enter matching new passwords (≥6), **Reset Password** | Success confirmation; audit entry `ADMIN_PASSWORD_RESET` created |
+| USR‑3 | Sign in as that user with the **new** password | Login succeeds |
+| USR‑4 | Sign in with the **old** password | Login fails |
+| USR‑5 | Try password < 6 chars or mismatched confirm | Blocked with a clear message; no change made |
+| USR‑6 | Call `/api/admin/users` or `/api/admin/reset-password` as a **non‑admin** | Rejected (403) |
+
 ---
 
 ## 14. Validation Logic Correctness

@@ -32,8 +32,10 @@ return.
 4. You land on the **Validator** screen. Your previously processed files and
    reports are restored automatically each time you sign in.
 
-> Forgot your password? Contact your administrator — there is no self‑service
-> reset.
+> **Forgot your password?** There is no self‑service reset. Ask an administrator
+> to reset it for you (see §2.6). After they set a new password, sign in with it
+> and you can keep using the app. Changing it again later also goes through an
+> admin.
 
 ## 1.3 The Validator screen at a glance
 - **Select Folder / ＋ Add Files** — choose the PDFs to process.
@@ -251,11 +253,36 @@ single and bulk stops, cancellations, rule and site changes, and more — each w
 the user and timestamp. Filter by user, event type, or task to investigate
 activity.
 
-## 2.5 Admin responsibilities checklist
+## 2.5 Users — resetting a password
+The **👤 Users** tab lets an admin reset any user's password (for someone who is
+locked out or forgot theirs). There is no email‑based self‑service reset by
+design; password changes are admin‑driven.
+
+**To reset a password:**
+1. Open the **👤 Users** tab.
+2. Under **Reset a User's Password**, choose the user from the dropdown.
+3. Type the **new password** (minimum 6 characters) and confirm it.
+4. Click **🔑 Reset Password**. You'll see a confirmation when it succeeds.
+5. Give the new password to the user through a **trusted channel** (in person, a
+   secure message) and ask them to keep it private.
+
+Notes:
+- The table on the same tab lists all users (username, name, role) for reference.
+- Every reset is recorded in the **Audit Log** (event `ADMIN_PASSWORD_RESET`,
+  showing which admin reset which user).
+- This is the supported way to handle both **forgotten passwords** and **routine
+  password changes** — the user asks an admin, who sets a new one here.
+
+> **Security:** choose a strong temporary password, deliver it privately, and
+> encourage the user not to reuse it elsewhere. (The app does not currently force
+> a change‑on‑first‑login, so treat the value as sensitive.)
+
+## 2.6 Admin responsibilities checklist
 - Keep **Sites** up to date so GPS checks are meaningful.
 - Maintain **Task Rules** for items that need specific criteria.
 - Review the **Admin Dashboard** for low‑acceptance or disputed reports.
 - Use the **Audit Log** to track who did what.
+- **Reset user passwords** in the **Users** tab when someone is locked out.
 - Manage the admin password and any user issues.
 
 ---
@@ -346,6 +373,14 @@ Open the report and **click the thumbnail** — it opens in a full‑size viewer
 In the Admin Dashboard, **click the file name** in the report's row to download
 the original PDF the owner uploaded.
 
+**Q: I forgot my password — how do I get back in?**
+Ask an administrator to reset it from the **Users** tab (§2.5). They'll set a new
+password and share it with you privately. There is no self‑service reset.
+
+**Q: (Admins) How do I reset someone's password?**
+Open the **👤 Users** tab → pick the user → enter and confirm a new password →
+**🔑 Reset Password**. The action is logged in the Audit Log.
+
 ---
 
 ## Quick reference card
@@ -356,8 +391,11 @@ the original PDF the owner uploaded.
 **Controls:** ▶ Run (one) · ■ Stop (one) · Run All · Stop All — all independent.
 
 **Admin extras:** Task Rules (item criteria) · Sites (GPS coordinates) · Audit
-(activity) · Dashboard (all users) — **click a file name to download the original
-PDF**.
+(activity) · Users (**reset passwords**) · Dashboard (all users) — **click a file
+name to download the original PDF**.
+
+**Forgot password?** No self‑service reset — an admin resets it in the **Users**
+tab.
 
 **Remember:**
 - Upload happens once at selection (duplicate names prompt replace/skip).

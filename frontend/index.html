@@ -450,6 +450,7 @@
     <button class="subnav-tab" id="tabAudit" onclick="switchTab('audit')" style="display:none;">📜 Audit</button>
     <button class="subnav-tab" id="tabTaskRules" onclick="switchTab('taskRules')" style="display:none;">📋 Task Rules</button>
     <button class="subnav-tab" id="tabSites" onclick="switchTab('sites')" style="display:none;">📍 Sites</button>
+    <button class="subnav-tab" id="tabUsers" onclick="switchTab('users')" style="display:none;">👤 Users</button>
   </div>
 
   <!-- VALIDATOR TAB -->
@@ -825,6 +826,45 @@
           </table>
         </div>
       </div><!-- end adminSitesPanel -->
+
+      <div id="adminUsersPanel" style="display:none;">
+        <div class="history-header">
+          <h2>Users</h2>
+          <button class="btn-view" onclick="loadUsers()">↺ Refresh</button>
+        </div>
+        <div style="background:var(--white);border:0.5px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;max-width:560px;">
+          <h3 style="margin:0 0 4px;font-size:14px;">Reset a User's Password</h3>
+          <p style="margin:0 0 14px;font-size:12px;color:var(--gray);">Set a new password for a user who has been locked out or forgot theirs. Tell them the new password through a trusted channel and ask them to keep it private.</p>
+          <div style="display:grid;grid-template-columns:1fr;gap:12px;">
+            <div>
+              <label class="db-filter-label">User</label>
+              <select class="db-filter-input" id="resetUserSelect" style="width:100%"></select>
+            </div>
+            <div>
+              <label class="db-filter-label">New password (min 6 characters)</label>
+              <input class="db-filter-input" id="resetNewPass" type="password" autocomplete="new-password" placeholder="new password" style="width:100%"/>
+            </div>
+            <div>
+              <label class="db-filter-label">Confirm new password</label>
+              <input class="db-filter-input" id="resetNewPass2" type="password" autocomplete="new-password" placeholder="repeat new password" style="width:100%"/>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <button class="btn-run" onclick="resetUserPassword()" style="padding:9px 24px;">🔑 Reset Password</button>
+              <span id="resetPassStatus" style="font-size:12px;color:var(--gray);"></span>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="jobs-table" style="table-layout:fixed;max-width:560px;">
+            <thead><tr>
+              <th>Username</th>
+              <th>Name</th>
+              <th style="width:90px;text-align:center;">Role</th>
+            </tr></thead>
+            <tbody id="usersTableBody"></tbody>
+          </table>
+        </div>
+      </div><!-- end adminUsersPanel -->
 
     <!-- Admin Report Detail Modal -->
     <div class="modal-overlay" id="adminModalOverlay">
@@ -1273,6 +1313,7 @@ if (isAdmin) {
     document.getElementById('tabAudit').style.display     = '';
     document.getElementById('tabTaskRules').style.display = '';
     document.getElementById('tabSites').style.display     = '';
+    document.getElementById('tabUsers').style.display     = '';
   } else {
     document.getElementById('tabValidator').style.display = '';
     document.getElementById('tabHistory').style.display   = '';
@@ -1280,6 +1321,7 @@ if (isAdmin) {
     document.getElementById('tabAudit').style.display     = 'none';
     document.getElementById('tabTaskRules').style.display = 'none';
     document.getElementById('tabSites').style.display     = 'none';
+    document.getElementById('tabUsers').style.display     = 'none';
   }
   switchTab(isAdmin ? 'admin' : 'validator');
   if (!isAdmin) await renderHistory();
@@ -1439,6 +1481,7 @@ function doSignOut() {
   document.getElementById('tabHistory').style.display = '';
   document.getElementById('tabAdmin').style.display = 'none';
   document.getElementById('tabAudit').style.display = 'none';
+  document.getElementById('tabUsers').style.display = 'none';
   document.getElementById('subnav').style.display = 'none';
   document.getElementById('appShell').classList.remove('visible');
   document.getElementById('authScreen').style.display = 'flex';
@@ -1509,6 +1552,7 @@ function switchTab(tab) {
   if (tab === 'audit')     { adminSubtab = 'audit';     tab = 'admin'; }
   if (tab === 'taskRules') { adminSubtab = 'taskRules'; tab = 'admin'; }
   if (tab === 'sites')     { adminSubtab = 'sites';     tab = 'admin'; }
+  if (tab === 'users')     { adminSubtab = 'users';     tab = 'admin'; }
 
   // Admins never see validator or history panels
   if (currentUser?.isAdmin && (tab === 'validator' || tab === 'history')) { tab = 'admin'; }
@@ -1522,6 +1566,7 @@ function switchTab(tab) {
 
   document.getElementById('tabTaskRules').style.display = currentUser?.isAdmin ? '' : 'none';
   document.getElementById('tabSites').style.display     = currentUser?.isAdmin ? '' : 'none';
+  document.getElementById('tabUsers').style.display     = currentUser?.isAdmin ? '' : 'none';
 
   document.getElementById('tabValidator').classList.toggle('active', tab === 'validator');
   document.getElementById('tabHistory').classList.toggle('active',   tab === 'history');
@@ -1529,6 +1574,7 @@ function switchTab(tab) {
   document.getElementById('tabAudit').classList.toggle('active',     tab === 'admin' && adminSubtab === 'audit');
   document.getElementById('tabTaskRules').classList.toggle('active', tab === 'admin' && adminSubtab === 'taskRules');
   document.getElementById('tabSites').classList.toggle('active',     tab === 'admin' && adminSubtab === 'sites');
+  document.getElementById('tabUsers').classList.toggle('active',     tab === 'admin' && adminSubtab === 'users');
 
   if (tab === 'history') renderHistory().catch(()=>{});
   if (tab === 'admin')   switchAdminTab(adminSubtab);
@@ -1594,14 +1640,17 @@ function switchAdminTab(tab) {
   document.getElementById('adminAuditPanel').style.display       = tab === 'audit'     ? '' : 'none';
   document.getElementById('adminTaskRulesPanel').style.display   = tab === 'taskRules' ? '' : 'none';
   document.getElementById('adminSitesPanel').style.display       = tab === 'sites'     ? '' : 'none';
+  document.getElementById('adminUsersPanel').style.display       = tab === 'users'     ? '' : 'none';
   document.getElementById('tabAdmin').classList.toggle('active',     tab === 'dashboard');
   document.getElementById('tabAudit').classList.toggle('active',     tab === 'audit');
   document.getElementById('tabTaskRules').classList.toggle('active', tab === 'taskRules');
   document.getElementById('tabSites').classList.toggle('active',     tab === 'sites');
+  document.getElementById('tabUsers').classList.toggle('active',     tab === 'users');
   if (tab === 'dashboard') renderAdmin().catch(()=>{});
   if (tab === 'audit')     loadAuditLog().catch(()=>{});
   if (tab === 'taskRules') loadTaskRules().catch(()=>{});
   if (tab === 'sites')     loadSites().catch(()=>{});
+  if (tab === 'users')     loadUsers().catch(()=>{});
 }
 async function renderAdmin() {
   if (!currentUser || !currentUser.isAdmin) return;
@@ -3756,6 +3805,60 @@ async function deleteTaskRule(cat, sub, num) {
 /* ══════════════════════════════════════════════
    SITES ADMIN
 ══════════════════════════════════════════════ */
+/* ── Admin: user management (reset password) ── */
+async function loadUsers() {
+  if (!currentUser || !currentUser.isAdmin) return;
+  const sel   = document.getElementById('resetUserSelect');
+  const tbody = document.getElementById('usersTableBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="3" style="padding:30px;text-align:center;color:var(--gray);">Loading…</td></tr>';
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + `/api/admin/users?admin_username=${encodeURIComponent(currentUser.username)}`);
+    if (!res.ok) throw new Error('denied');
+    const users = await res.json();
+    if (sel) sel.innerHTML = users.map(u =>
+      `<option value="${escAttr(u.username)}">${escHtml(u.username)}${u.isAdmin ? ' (admin)' : ''}</option>`).join('');
+    if (tbody) tbody.innerHTML = users.length
+      ? users.map(u => `<tr>
+          <td style="font-family:var(--mono);"><strong>${escHtml(u.username)}</strong></td>
+          <td>${escHtml(u.name || '—')}</td>
+          <td style="text-align:center;">${u.isAdmin ? 'Admin' : 'User'}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="3" style="padding:30px;text-align:center;color:var(--gray);">No users.</td></tr>';
+  } catch (e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="3" style="padding:30px;text-align:center;color:var(--red);">Failed to load users.</td></tr>';
+  }
+}
+
+async function resetUserPassword() {
+  if (!currentUser || !currentUser.isAdmin) return;
+  const status = document.getElementById('resetPassStatus');
+  const setStatus = (msg, ok) => { if (status) { status.textContent = msg; status.style.color = ok ? 'var(--green)' : 'var(--red)'; } };
+  const username = document.getElementById('resetUserSelect').value;
+  const p1 = document.getElementById('resetNewPass').value;
+  const p2 = document.getElementById('resetNewPass2').value;
+  if (!username) { setStatus('Pick a user.', false); return; }
+  if (p1.length < 6) { setStatus('Password must be at least 6 characters.', false); return; }
+  if (p1 !== p2) { setStatus('Passwords do not match.', false); return; }
+  setStatus('Saving…', true);
+  try {
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/reset-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ admin_username: currentUser.username, username, newPassword: p1 })
+    });
+    const data = await res.json();
+    if (data && data.success) {
+      document.getElementById('resetNewPass').value = '';
+      document.getElementById('resetNewPass2').value = '';
+      setStatus('✓ Password reset for ' + username, true);
+      showToast('✓ Password reset for ' + username);
+    } else {
+      setStatus('✗ ' + ((data && data.error) || 'Failed to reset password'), false);
+    }
+  } catch (e) {
+    setStatus('✗ Could not reach the server.', false);
+  }
+}
+
 async function loadSites() {
   const tbody = document.getElementById('sitesTableBody');
   tbody.innerHTML = '<tr><td colspan="4" style="padding:30px;text-align:center;color:var(--gray);">Loading…</td></tr>';
