@@ -41,6 +41,19 @@ return.
 - The **file table**: one row per PDF, showing progress, acceptance %, per‑file
   controls (Run / Stop / Re‑run / Remove), and a link to the report.
 - **Summary counters** at the top: Total, Done, Disputed, Average %.
+- **LLM status pill** (see §1.3.1) — shows whether the AI service is reachable.
+
+### 1.3.1 The LLM (AI) status indicator
+A small status pill shows the health of the AI service that performs the
+validation:
+- **🟢 LLM Online** — the AI service is reachable; validation can run normally.
+- **🔴 LLM Offline** — the AI service can't be reached. The system can still
+  upload files and read photo date/GPS, but the **AI verdict step will fail**, so
+  runs will end in **Error** until it's back.
+
+The pill is checked automatically. If you see **🔴 LLM Offline**, wait a moment
+and refresh; if it stays red, contact your administrator before running — the AI
+inference server is likely down or unreachable.
 
 ## 1.4 Step‑by‑step: validating reports
 
@@ -60,6 +73,12 @@ return.
 > If a file fails to upload (e.g. a network glitch), its row shows a **⟳ Retry
 > upload** button. Click it to re‑upload just that file. Nothing retries
 > silently.
+
+> **Duplicate file names:** if you add a file whose name already exists in your
+> list, the tool asks whether to **replace** the existing one or **skip** the new
+> one. Choosing *replace* removes the old stored copy and uploads the new file in
+> its place; choosing *skip* keeps the original. (File names are the identifier,
+> so keep them unique and meaningful.)
 
 ### Step 2 — Run
 You have two ways to start:
@@ -90,6 +109,16 @@ work is in progress.
 ### Step 5 — View the report
 When a file reaches **Done**, click **View Report →** on its row.
 
+### Step 6 — Save the report (important)
+Inside the open report there is a **💾 Save Report** button. Processing a file
+shows the result on your screen, but the result is **not stored** until you click
+**Save Report**.
+
+- **Only saved reports appear in the Dashboard** (yours) **and in the Admin
+  Dashboard** (for admins). If you don't save, an admin cannot see the report.
+- Save the reports you want to keep/share; you'll get a *"✓ Report saved"*
+  confirmation.
+
 ## 1.5 Reading a report
 The report opens in a window with:
 - **Header**: Task ID, Site ID, Task Category/Subcategory, Report Date, FME.
@@ -97,7 +126,9 @@ The report opens in a window with:
   more items not confirmed), plus the **Acceptance %**.
 - **Per‑item rows**, each showing:
   - **Item Description** — the checklist task text.
-  - **Photo Checks** — thumbnails plus, for each photo, two pills:
+  - **Photo Checks** — thumbnails plus, for each photo, two pills. **Click any
+    thumbnail to open the photo full‑size** in a viewer (lightbox); you can step
+    through the item's photos and close it to return to the report.
     - **Date** — `✓ <date>` if the photo's capture date is within tolerance of
       the report date; `✗ Date missing` if the photo has no readable date; or
       `✗ <date>` if it's outside tolerance.
@@ -111,6 +142,10 @@ The report opens in a window with:
 
 ## 1.6 Your Dashboard
 Click the **Dashboard** tab to see all reports **you** have produced.
+
+> **Only reports you saved** (with **💾 Save Report**, §Step 6) appear here. A
+> processed‑but‑unsaved file will not show up in the Dashboard.
+
 - **Filter** by Task ID, Site ID, and min/max Acceptance %.
 - **Sort** by clicking column headers (e.g. Acceptance Rate).
 - Summary KPIs update to match your current filter.
@@ -136,6 +171,15 @@ The Dashboard for an admin shows reports from **every user**, with an **Owner**
 column. You can filter by Owner, Task ID, Site ID, Category/Subcategory, date,
 FME, and Acceptance %, and sort by any column. Use this to review output across
 the whole team.
+
+- **Saved reports only.** The Admin Dashboard shows only reports that their owner
+  **saved** with **💾 Save Report**. If a user processed a file but didn't save
+  it, it won't appear here — ask them to open it and click Save Report.
+- **Open the report:** click a row to view the full report, including photos.
+  Click any **thumbnail** to see the image **full‑size**.
+- **Download the original PDF:** click the **file name** in a row to download the
+  **original PDF** that the owner uploaded (opens in a new tab). This is the
+  source report, exactly as submitted.
 
 ## 2.2 Task Rules — teaching the AI what "pass" means
 Task Rules let you add extra, item‑specific validation criteria that are injected
@@ -258,6 +302,9 @@ scoring are unaffected.)
 | **Files show "Waiting…" for a while** | Normal — only a few files process at once; they start as slots free up. |
 | **I closed the tab — did I lose my run?** | No. Processing continues on the server; sign back in to see progress/results. |
 | **A report failed (Error)** | Re‑run that file. If it keeps failing, the PDF may be corrupt or the AI service may be temporarily unavailable — tell your admin. |
+| **Status shows 🔴 LLM Offline** | The AI service is unreachable; runs will Error at the AI step. Wait and refresh; if it stays red, contact your admin (the inference server is likely down). |
+| **My report isn't in the Dashboard / admin can't see it** | You must open the report and click **💾 Save Report**. Only saved reports appear in the Dashboard and Admin Dashboard. |
+| **Adding a file did nothing / asked to replace** | A file with that name already exists; choose **replace** to overwrite or **skip** to keep the original. |
 | **A task rule "isn't working"** | Check the rule's Category/Subcategory/Task # match the report exactly, and remember rules guide (not force) the AI. Re‑run the file after changing a rule. |
 | **Photos don't appear in a report** | The photos may not have uploaded to storage for that task; re‑run the file. |
 | **Login fails** | Verify username/password; contact your admin if needed. |
@@ -283,21 +330,40 @@ admin rules). If the evidence doesn't support an item, it's disputed regardless
 of the inspector's mark.
 
 **Q: Can admins see my reports?**
-Yes — admins have an all‑users dashboard for oversight. Regular users see only
-their own.
+Admins have an all‑users dashboard for oversight, but they see a report **only
+after you save it** with **💾 Save Report**. Unsaved results stay on your screen
+only.
+
+**Q: What does the LLM Online / Offline pill mean?**
+It's the health of the AI service. **🟢 Online** = validation can run. **🔴
+Offline** = the AI is unreachable and runs will Error at the AI step; wait or tell
+your admin.
+
+**Q: How do I see a photo full‑size?**
+Open the report and **click the thumbnail** — it opens in a full‑size viewer.
+
+**Q: (Admins) How do I get the original submitted PDF?**
+In the Admin Dashboard, **click the file name** in the report's row to download
+the original PDF the owner uploaded.
 
 ---
 
 ## Quick reference card
 
 **User flow:** Sign in → Select Folder / Add Files → wait for upload → **Run All**
-→ watch progress → **View Report** → review on **Dashboard**.
+→ watch progress → **View Report** → **💾 Save Report** → review on **Dashboard**.
 
 **Controls:** ▶ Run (one) · ■ Stop (one) · Run All · Stop All — all independent.
 
 **Admin extras:** Task Rules (item criteria) · Sites (GPS coordinates) · Audit
-(activity) · Dashboard (all users).
+(activity) · Dashboard (all users) — **click a file name to download the original
+PDF**.
 
-**Remember:** upload once at selection · processing is server‑side (leave any
-time) · Date/GPS checks are automatic · Task Rules guide the AI, they don't force
-a verdict.
+**Remember:**
+- Upload happens once at selection (duplicate names prompt replace/skip).
+- A result is only stored — and visible to admins — after you click **💾 Save
+  Report**.
+- Click a **thumbnail** to view a photo full‑size.
+- Watch the **🟢 LLM Online / 🔴 LLM Offline** pill — runs need the AI online.
+- Processing is server‑side (you can leave any time) · Date/GPS checks are
+  automatic · Task Rules guide the AI, they don't force a verdict.
