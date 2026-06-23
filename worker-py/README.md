@@ -90,8 +90,49 @@ per‑item verdicts against a browser run of the same file.
 4. **Concurrency** — the engine is I/O‑bound (LLM waits); use a thread/process
    pool. Memory is a fraction of Chromium.
 
-## Rollout
-- Keep `worker` (Playwright) as default.
-- Add `worker-py` as a second service; route runs to it via an env flag
-  (e.g. `ENGINE=python`). Run both in parallel on a subset, compare, then flip
-  the default and retire the browser worker.
+## Deploy (same place as the existing product)
+This ships as a **profile‑gated** compose service `worker-py`, so it never starts
+by default and never competes with the existing `worker`. It reuses the same
+queue and writes to the same `user_files`, so the frontend is unchanged.
+
+**Switch from the browser worker to the Python engine:**
+```bash
+cd <project>                      # where docker-compose.yml + .env live
+docker compose stop worker        # stop the Chromium worker (don't run both)
+docker compose --profile python-engine up -d --build worker-py
+docker compose logs -f worker-py  # expect: "python engine worker starting ..."
+```
+**Revert to the browser worker:**
+```bash
+docker compose stop worker-py
+docker compose up -d worker
+```
+
+Relevant `.env` knobs (mirrors the existing product):
+- `WORKER_TOKEN`, `WORKER_CONCURRENCY`, `WORKER_POLL_SECONDS`
+- `LLM_SERVER_URL`, `LLM_MODEL_NAME`
+- `FRONTEND_EXTRACT_PHOTOS` (re‑used as the worker's photo‑extraction toggle)
+- `CHECKBOX_DETECT` (default true; set false to skip vision checkbox detection
+  while `render.py` crop offsets are being calibrated)
+- `GPS_RADIUS_METERS`, `DATE_TOLERANCE_DAYS`, `PHOTO_MAX_INDEX`
+
+> The container reaches MinIO at `http://minio:9000/<bucket>` and the backend at
+> `http://backend:9700` over the Docker network; the LLM at `LLM_SERVER_URL`.
+> The image has **no browser** — it's a small `python:3.11-slim` + PyMuPDF.
+
+## Rollout plan
+1. Deploy `worker-py` alongside (it stays off until you enable the profile).
+2. On a test user, switch to the Python engine and run a few files; diff the
+   resulting Acceptance % / verdicts against a browser‑worker run of the same
+   files (golden set incl. Persian + multi‑page).
+3. Calibrate `render.py` checkbox crop if needed (or run with
+   `CHECKBOX_DETECT=false` initially).
+4. Once parity holds, make it the default and retire the `worker` service.
+
+## Verified so far (in this repo, offline)
+- Item extraction parity on both sample PDFs (21 and 47 items; Persian correct).
+- Header parse matches the report header exactly.
+- haversine + date/GPS checks correct.
+- All modules import and parse; full pipeline + worker wired end‑to‑end.
+**Not yet verified on a live stack:** the LLM stages and checkbox crop need the
+running vLLM/MinIO/backend — that's the next step on the server.

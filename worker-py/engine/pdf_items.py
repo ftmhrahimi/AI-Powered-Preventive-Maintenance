@@ -54,15 +54,16 @@ def _row_cmp(a, b):
 
 
 def extract_raw_items(pdf_path):
-    """Return [{'num','desc','result'}] of RAW (uncleaned) items, plus enough
-    to feed the LLM cleaning passes. `result` is left as None here (checkbox
-    detection is a separate LLM/vision step)."""
+    """Return [{'num','desc','result','page','anchor_y'}] of RAW (uncleaned)
+    items, plus enough to feed the LLM cleaning passes and the checkbox render.
+    `result` is left None here (checkbox detection is a separate vision step);
+    `page`/`anchor_y` locate the row's checkbox band (pdf.js bottom-left Y)."""
     doc = fitz.open(pdf_path)
     full_text = doc[0].get_text() if doc.page_count else ""
     is_english = not bool(ARABIC.search(full_text))
     tasks = []
     counter = 1
-    for page in doc:
+    for page_index, page in enumerate(doc):
         items = _page_fragments(page)
         ok_items    = [it for it in items if OK_RE.match(it["str"])]
         notok_items = [it for it in items if NOTOK_RE.search(it["str"])]
@@ -83,9 +84,37 @@ def extract_raw_items(pdf_path):
             raw = re.sub(r'\s+', ' ', ' '.join(it["str"] for it in box)).strip()
             desc = fix_persian(raw) if ARABIC.search(raw) else raw
             if len(desc) > 5:
-                tasks.append({"num": counter, "desc": desc, "result": None})
+                tasks.append({"num": counter, "desc": desc, "result": None,
+                              "page": page_index, "anchor_y": y})
                 counter += 1
     return {"items": tasks, "is_english": is_english}
+
+
+HEADER_KEYS = {
+    'Task ID:': 'taskId', 'Task Category:': 'taskCategory',
+    'Task Subcategory:': 'taskSubcategory', 'Site ID:': 'siteId',
+    'Report Date:': 'reportDate', 'Report FME:': 'fmeName',
+}
+
+
+def parse_header(pdf_path):
+    """Port of the SPA header parse: scan text lines for known labels."""
+    doc = fitz.open(pdf_path)
+    lines = []
+    for page in doc:
+        for block in page.get_text("dict")["blocks"]:
+            if block.get("type") != 0:
+                continue
+            for line in block["lines"]:
+                txt = " ".join(s["text"] for s in line["spans"]).strip()
+                if txt:
+                    lines.append(txt)
+    header = {}
+    for i, ln in enumerate(lines):
+        for label, key in HEADER_KEYS.items():
+            if ln.startswith(label):
+                header[key] = ln[len(label):].strip() or (lines[i+1].strip() if i+1 < len(lines) else '')
+    return header
 
 
 if __name__ == "__main__":

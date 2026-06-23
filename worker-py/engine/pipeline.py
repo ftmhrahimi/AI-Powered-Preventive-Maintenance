@@ -1,37 +1,49 @@
 """End-to-end processing of one file, Chromium-free. Mirrors the browser
-runAllLocal→processJob for a single target. Writes progress to user_files via a
-callback so the existing UI polling keeps working unchanged.
+runAllLocal→processJob for a single target. Writes progress via on_progress so
+the existing UI polling keeps working unchanged.
 
-Order:
-  1. extractor.process_pdf  → photos + metadata to MinIO   (reuse backend code)
-  2. pdf_items.extract_raw  → raw items (PyMuPDF)
-  3. llm.clean_items + fix_bleed → clean descriptions       (LLM passes #1/#2)
-  4. per row: render strip → llm.detect_checkbox → result
-  5. per item: validate.validate_item → verdict
-  6. aggregate → confirmation% → final state
+Photo extraction (PDF→images+metadata→MinIO) is delegated to the backend
+/extract endpoint by the worker BEFORE this runs, so here we only: extract
+items, clean (LLM), detect checkboxes (vision), validate (vision), aggregate.
 """
-from engine import pdf_items, llm, render, validate
+import os
 import fitz
+
+from engine import pdf_items, llm, render, validate
+
+CHECKBOX_DETECT = os.getenv("CHECKBOX_DETECT", "true").lower() == "true"
 
 
 def process_file(pdf_path, header, site, task_rules, report_date,
                  on_progress=lambda pct, label: None, is_cancelled=lambda: False):
     on_progress(15, "Extracting items…")
     raw = pdf_items.extract_raw_items(pdf_path)
+    raw_by_num = {t["num"]: t for t in raw["items"]}
+
     items = llm.clean_items(raw["items"], raw["is_english"])
     if not raw["is_english"]:
         items = llm.fix_bleed(items)
 
-    # checkbox result per row (vision)
+    # Checkbox OK/NOT_OK per row (vision). Map cleaned item → raw anchor by num.
     doc = fitz.open(pdf_path)
-    # NOTE: needs a row→page/anchor map; see render.py calibration TODO.
+    on_progress(35, "Reading checkboxes…")
     for it in items:
         if is_cancelled():
             return {"status": "stopped"}
-        it.setdefault("result", "NOT_OK")
+        result = "NOT_OK"
+        if CHECKBOX_DETECT:
+            src = raw_by_num.get(int(it["num"]))
+            if src is not None:
+                try:
+                    strip = render.strip_for_anchor(doc[src["page"]], src["anchor_y"])
+                    result = llm.detect_checkbox(strip)
+                except Exception:
+                    result = "NOT_OK"
+        it["result"] = result
 
     on_progress(40, "Validating items…")
     results, confirmed = [], 0
+    total = len(items)
     for idx, it in enumerate(items):
         if is_cancelled():
             return {"status": "stopped"}
@@ -41,10 +53,9 @@ def process_file(pdf_path, header, site, task_rules, report_date,
         if res.get("verdict") == "CONFIRMED":
             confirmed += 1
         results.append(res)
-        on_progress(40 + int(55 * (idx + 1) / max(1, len(items))),
-                    f"Validating {idx+1}/{len(items)}…")
+        on_progress(40 + int(55 * (idx + 1) / max(1, total)),
+                    f"Validating {idx+1}/{total}…")
 
-    total = len(items)
     confirmation = round(confirmed / total * 100) if total else 0
     return {"status": "done", "confirmation": confirmation,
             "parsedItems": items, "results": results}

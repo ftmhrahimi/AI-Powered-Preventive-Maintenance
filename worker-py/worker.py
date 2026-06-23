@@ -1,27 +1,35 @@
-"""Chromium-free worker: claim server-runs and process them in pure Python.
+"""Chromium-free worker: claims server-runs and processes them in pure Python.
 
-Drop-in replacement for the Playwright worker. Reuses the SAME backend queue
-(/worker/claim, /worker/heartbeat, /worker/complete) and writes per-file state
-to the same user_files store, so the frontend UI is unchanged.
-
-SKELETON — wire up file download (from backend storage), header parsing, the
-user_files progress writes, and per-run cancellation against /api/server-run,
-then run several of these (thread/process pool) for concurrency.
+Drop-in for the Playwright worker. Reuses the SAME backend queue (/worker/*) and
+writes per-file state to the same user_files store, so the frontend UI is
+unchanged. Run several instances (WORKER_CONCURRENCY threads) for parallelism;
+each is I/O-bound on the LLM, so memory is a fraction of a browser.
 """
 import os
+import io
 import time
+import json
 import logging
+import tempfile
+import threading
+
 import requests
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s pyworker: %(message)s")
+from engine import pdf_items, pipeline
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s pyworker: %(message)s")
 log = logging.getLogger("pyworker")
 
 BACKEND = os.getenv("WORKER_BACKEND_URL", "http://backend:9700").rstrip("/")
 TOKEN   = os.getenv("WORKER_TOKEN", "")
 POLL    = int(os.getenv("WORKER_POLL_SECONDS", "5"))
+CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "3"))
+EXTRACT_PHOTOS = os.getenv("EXTRACT_PHOTOS", "true").lower() == "true"
 HEADERS = {"X-Worker-Token": TOKEN} if TOKEN else {}
 
 
+# ── Backend protocol ─────────────────────────────────────────────────────────
 def claim():
     try:
         r = requests.post(f"{BACKEND}/worker/claim", headers=HEADERS, timeout=30)
@@ -30,6 +38,13 @@ def claim():
     except Exception as e:
         log.warning("claim failed: %s", e)
         return None
+
+
+def heartbeat(run_id):
+    try:
+        requests.post(f"{BACKEND}/worker/heartbeat", json={"id": run_id}, headers=HEADERS, timeout=15)
+    except Exception:
+        pass
 
 
 def complete(run_id, username, status, error=None):
@@ -41,18 +56,158 @@ def complete(run_id, username, status, error=None):
         log.warning("complete failed: %s", e)
 
 
-def main():
-    log.info("python worker starting — backend=%s", BACKEND)
+def run_cancelled(run_id):
+    try:
+        r = requests.post(f"{BACKEND}/worker/run-status", json={"id": run_id}, headers=HEADERS, timeout=15)
+        return (r.json() or {}).get("status") == "cancelled"
+    except Exception:
+        return False
+
+
+def download_pdf(username, filename):
+    r = requests.get(f"{BACKEND}/api/pdfs/download",
+                     params={"username": username, "filename": filename},
+                     headers=HEADERS, timeout=120)
+    r.raise_for_status()
+    return r.content
+
+
+def save_file_state(username, filename, state):
+    """Upsert a single file's state into user_files (same shape the SPA saves)."""
+    payload = {"fileName": filename, "status": state.get("status", "pending"),
+               "confirmation": state.get("confirmation"),
+               "pct": state.get("pct"), "barLabel": state.get("barLabel"),
+               "parsedHeader": state.get("parsedHeader", {}),
+               "parsedItems": state.get("parsedItems", []),
+               "results": state.get("results", [])}
+    try:
+        requests.post(f"{BACKEND}/api/userfiles",
+                      json={"username": username, "files": [payload]},
+                      headers=HEADERS, timeout=30)
+    except Exception as e:
+        log.warning("save_file_state failed: %s", e)
+
+
+def load_site(site_id):
+    try:
+        sites = requests.get(f"{BACKEND}/api/sites", headers=HEADERS, timeout=30).json()
+        for s in sites:
+            if str(s.get("siteId", "")).upper() == str(site_id or "").upper():
+                return {"lat": float(s["lat"]), "lon": float(s["lon"])}
+    except Exception:
+        pass
+    return None
+
+
+def load_rules():
+    try:
+        return requests.get(f"{BACKEND}/api/task-rules", headers=HEADERS, timeout=30).json()
+    except Exception:
+        return {}
+
+
+def ensure_photos(pdf_bytes, username, filename, progress):
+    """Mirror the browser: POST the PDF to /extract, poll /job until done."""
+    if not EXTRACT_PHOTOS:
+        return
+    files = {"file": (filename, io.BytesIO(pdf_bytes), "application/pdf")}
+    r = requests.post(f"{BACKEND}/extract", files=files, data={"username": username},
+                      headers=HEADERS, timeout=120)
+    data = r.json()
+    if not data.get("success"):
+        raise RuntimeError(data.get("error") or "extract submit failed")
+    job_id = data["job_id"]
+    while True:
+        p = requests.get(f"{BACKEND}/job/{job_id}", headers=HEADERS, timeout=30).json()
+        st = p.get("status")
+        if st == "failed":
+            raise RuntimeError(p.get("error") or "extraction failed")
+        progress(max(5, p.get("progress_pct", 5)), p.get("progress_label") or "Extracting…")
+        if st == "done":
+            return
+        time.sleep(3)
+
+
+# ── One run ──────────────────────────────────────────────────────────────────
+def process_run(run):
+    run_id, username, filename = run["id"], run["username"], run.get("target")
+    if not filename:
+        complete(run_id, username, "failed", "no target")
+        return
+
+    def progress(pct, label):
+        save_file_state(username, filename,
+                        {"status": "pending", "pct": pct, "barLabel": label})
+
+    cancelled = {"v": False}
+
+    def hb_loop():
+        while not cancelled["v"]:
+            heartbeat(run_id)
+            if run_cancelled(run_id):
+                cancelled["v"] = True
+                break
+            time.sleep(20)
+    hb = threading.Thread(target=hb_loop, daemon=True); hb.start()
+
+    try:
+        pdf_bytes = download_pdf(username, filename)
+        header = _header_from_bytes(pdf_bytes)
+        report_date = header.get("reportDate", "")
+        site = load_site(header.get("siteId"))
+        rules = load_rules()
+
+        progress(2, "Submitting PDF…")
+        ensure_photos(pdf_bytes, username, filename, progress)
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
+            tmp.write(pdf_bytes); tmp.flush()
+            out = pipeline.process_file(
+                tmp.name, header, site, rules, report_date,
+                on_progress=progress, is_cancelled=lambda: cancelled["v"])
+
+        if out.get("status") == "stopped" or cancelled["v"]:
+            save_file_state(username, filename, {"status": "stopped", "pct": 0, "barLabel": "Stopped"})
+            complete(run_id, username, "cancelled")
+            return
+
+        save_file_state(username, filename, {
+            "status": "done", "pct": 100, "barLabel": "Complete",
+            "confirmation": out["confirmation"], "parsedHeader": header,
+            "parsedItems": out["parsedItems"], "results": out["results"]})
+        complete(run_id, username, "done")
+        log.info("run %s done (%s%%)", run_id, out["confirmation"])
+    except Exception as e:
+        log.exception("run %s failed", run_id)
+        save_file_state(username, filename, {"status": "error", "pct": 100, "barLabel": "Failed: " + str(e)})
+        complete(run_id, username, "failed", str(e))
+    finally:
+        cancelled["v"] = True
+
+
+def _header_from_bytes(pdf_bytes):
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as t:
+        t.write(pdf_bytes); t.flush()
+        return pdf_items.parse_header(t.name)
+
+
+def worker_loop(wid):
+    log.info("python worker[%d] started — backend=%s", wid, BACKEND)
     while True:
         run = claim()
         if not run:
             time.sleep(POLL)
             continue
-        log.info("processing run %s (%s) for %s", run["id"], run.get("target"), run["username"])
-        # TODO: download the target PDF, parse header, load site + rules,
-        #       call engine.pipeline.process_file with on_progress writing to
-        #       /api/userfiles and is_cancelled polling /api/server-run.
-        complete(run["id"], run["username"], "done")
+        log.info("worker[%d] processing run %s (%s) for %s", wid, run["id"], run.get("target"), run["username"])
+        process_run(run)
+
+
+def main():
+    log.info("python engine worker starting with concurrency=%d", CONCURRENCY)
+    threads = [threading.Thread(target=worker_loop, args=(i,), daemon=True) for i in range(max(1, CONCURRENCY))]
+    for t in threads: t.start()
+    for t in threads: t.join()
 
 
 if __name__ == "__main__":

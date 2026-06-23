@@ -66,6 +66,38 @@ services:
     networks:
       - pm-net
 
+  # Chromium-free Python engine worker (Option C). Opt-in via a compose profile
+  # so it never competes with the default `worker`. To switch engines:
+  #   docker compose stop worker
+  #   docker compose --profile python-engine up -d --build worker-py
+  # To revert: stop worker-py, start worker. (Both poll the same queue, so run
+  # only ONE at a time.)
+  worker-py:
+    build: ./worker-py
+    image: pm-portal-worker-py:latest
+    container_name: pm-worker-py
+    profiles: ["python-engine"]
+    env_file: .env
+    environment:
+      WORKER_BACKEND_URL: http://backend:9700
+      MINIO_BASE: http://minio:9000/${MINIO_BUCKET:-pm-photos}
+      WORKER_TOKEN: ${WORKER_TOKEN:-}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      # Mirror the browser pipeline's photo-extraction toggle and thresholds.
+      EXTRACT_PHOTOS: ${FRONTEND_EXTRACT_PHOTOS:-false}
+      CHECKBOX_DETECT: ${CHECKBOX_DETECT:-true}
+      LLM_SERVER_URL: ${LLM_SERVER_URL:-}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-./}
+      GPS_RADIUS_METERS: ${GPS_RADIUS_METERS:-300}
+      DATE_TOLERANCE_DAYS: ${DATE_TOLERANCE_DAYS:-3}
+      PHOTO_MAX_INDEX: ${PHOTO_MAX_INDEX:-50}
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - pm-net
+
   minio:
     image: minio/minio:latest
     container_name: pm-minio
