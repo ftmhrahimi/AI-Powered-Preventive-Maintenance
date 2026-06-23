@@ -20,9 +20,10 @@ def process_file(pdf_path, header, site, task_rules, report_date,
     raw = pdf_items.extract_raw_items(pdf_path)
     raw_by_num = {t["num"]: t for t in raw["items"]}
 
-    items = llm.clean_items(raw["items"], raw["is_english"])
-    if not raw["is_english"]:
-        items = llm.fix_bleed(items)
+    # Descriptions are already cleaned DETERMINISTICALLY in extract_raw_items
+    # (3x-repetition + headers removed, NFKC). No LLM over the text — this avoids
+    # both LLM cost and transcription errors (e.g. لولا→لوله).
+    items = [{"num": t["num"], "desc": t["desc"], "result": None} for t in raw["items"]]
 
     # Checkbox OK/NOT_OK per row (vision). Map cleaned item → raw anchor by num.
     doc = fitz.open(pdf_path)

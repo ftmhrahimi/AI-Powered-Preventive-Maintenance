@@ -53,11 +53,60 @@ def _row_cmp(a, b):
     return -1 if a["x"] > b["x"] else (1 if a["x"] < b["x"] else 0)
 
 
+def _norm(s):
+    """Aggressive normalisation for comparing lines (drops marks, spaces,
+    punctuation, digits) so the 3 repeated table rows compare equal."""
+    s = re.sub(r'[‌​‎‏­ً-ٟ]', '', s)
+    return re.sub(r'[\s.,،؛;:()\-\d]', '', unicodedata.normalize('NFKC', s)).strip()
+
+
+def _clean_box(box):
+    """Deterministically turn a row's raw fragments into ONE clean description.
+
+    PM reports repeat each item's description across ~3 table rows (text row,
+    checkbox row, photo row); header pages also bleed header fields in. We:
+      1. group fragments into lines (Y bands), keeping ascending-Y reading order;
+      2. keep lines that REPEAT (the description appears >=2x) and drop one-off
+         lines (headers/noise) — falling back to all lines if nothing repeats;
+      3. keep the first occurrence of each unique line, NFKC-normalise, and strip
+         a leading item number.
+    No LLM involved.
+    """
+    rows = sorted(box, key=lambda it: it["y"])
+    lines = []
+    for it in rows:
+        if lines and abs(lines[-1]["y"] - it["y"]) <= 3:
+            lines[-1]["items"].append(it)
+        else:
+            lines.append({"y": it["y"], "items": [it]})
+    texts = []
+    for ln in lines:
+        ln["items"].sort(key=lambda i: -i["x"])  # RTL within a line
+        texts.append(re.sub(r'\s+', ' ', ' '.join(i["str"] for i in ln["items"])).strip())
+
+    counts = {}
+    for t in texts:
+        counts[_norm(t)] = counts.get(_norm(t), 0) + 1
+    repeated = [t for t in texts if counts.get(_norm(t), 0) >= 2]
+    chosen = repeated if repeated else texts
+
+    seen, kept = set(), []
+    for t in chosen:
+        nrm = _norm(t)
+        if not nrm or nrm in seen:
+            continue
+        seen.add(nrm)
+        kept.append(t)
+    desc = re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', ' '.join(kept))).strip()
+    desc = re.sub(r'(?<!\d)\d{1,2}\.\s*', '', desc, count=1)  # drop a leading "12."
+    return desc
+
+
 def extract_raw_items(pdf_path):
-    """Return [{'num','desc','result','page','anchor_y'}] of RAW (uncleaned)
-    items, plus enough to feed the LLM cleaning passes and the checkbox render.
-    `result` is left None here (checkbox detection is a separate vision step);
-    `page`/`anchor_y` locate the row's checkbox band (pdf.js bottom-left Y)."""
+    """Return {'items':[{'num','desc','result','page','anchor_y'}], 'is_english'}.
+    Descriptions are cleaned DETERMINISTICALLY here (no LLM). `result` is None
+    (checkbox detection is a separate vision step); `page`/`anchor_y` locate the
+    row's checkbox band (pdf.js bottom-left Y)."""
     doc = fitz.open(pdf_path)
     full_text = doc[0].get_text() if doc.page_count else ""
     is_english = not bool(ARABIC.search(full_text))
@@ -80,9 +129,7 @@ def extract_raw_items(pdf_path):
                    if it["y"] < top and it["y"] > bottom and it["y"] > bottom + 3
                    and not NOTOK_EXACT.match(it["str"].strip())
                    and not CHECK_GLYPH.search(it["str"])]
-            box.sort(key=cmp_to_key(_row_cmp))
-            raw = re.sub(r'\s+', ' ', ' '.join(it["str"] for it in box)).strip()
-            desc = fix_persian(raw) if ARABIC.search(raw) else raw
+            desc = _clean_box(box)
             if len(desc) > 5:
                 tasks.append({"num": counter, "desc": desc, "result": None,
                               "page": page_index, "anchor_y": y})
