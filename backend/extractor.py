@@ -106,9 +106,12 @@ def extract_fields_to_minio(pil_image, prompt_path, task_id, inspection_num, img
     # in image_extractor). Large images blow up the vision encoder's activation
     # memory and token count, which causes vLLM OOM (500) under concurrency and
     # slows inference. Shrinking to ~1024px longest side fixes both.
+    # LLM_IMAGE_MAX_PX <= 0 disables downscaling (full-resolution to the LLM —
+    # best accuracy, needed for reading small stamped date/GPS text; use with
+    # WORKER_CONCURRENCY=1 to stay within GPU memory).
     max_px = int(os.environ.get("LLM_IMAGE_MAX_PX", "1024"))
     llm_img = pil_image
-    if max(pil_image.size) > max_px:
+    if max_px > 0 and max(pil_image.size) > max_px:
         llm_img = pil_image.copy()
         llm_img.thumbnail((max_px, max_px))
     buf = io.BytesIO()

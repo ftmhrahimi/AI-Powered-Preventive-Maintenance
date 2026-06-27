@@ -19,6 +19,8 @@ LLM_IMAGE_MAX_PX = int(os.getenv("LLM_IMAGE_MAX_PX", "1024"))
 
 def _shrink(jpg_bytes):
     """Downscale an image to LLM_IMAGE_MAX_PX longest side for the LLM call."""
+    if LLM_IMAGE_MAX_PX <= 0:        # disabled → send full-resolution image
+        return jpg_bytes
     try:
         img = Image.open(io.BytesIO(jpg_bytes)).convert("RGB")
         if max(img.size) > LLM_IMAGE_MAX_PX:
