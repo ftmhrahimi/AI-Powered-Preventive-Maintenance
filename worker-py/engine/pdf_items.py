@@ -125,12 +125,18 @@ def _clean_box(box, is_english):
       2. rebuild each line in correct logical order from its glyphs (visual x
          order → logical via _line_text: identity for English, bidi flip for
          Persian, fixing embedded English/numbers and the item number);
-      3. keep lines that REPEAT (the description appears >=2x) and drop one-off
-         lines (headers/noise) — falling back to all lines if nothing repeats;
-      4. dedup, NFKC-normalise, and strip a leading item number.
+      3. segment the lines into the ~3 repeated copies (each starts with the
+         item number) and take a per-line MAJORITY VOTE across copies, so a copy
+         polluted by header/footer bleed can't corrupt the description; fall back
+         to a repeat-filter + dedup when copies can't be aligned;
+      4. NFKC-normalise and strip a leading item number.
     No LLM involved.
     """
-    rows = sorted(box, key=lambda it: it["y"])
+    # Reading order differs by language (matches the browser sort): these PM
+    # PDFs stack a paragraph's wrapped lines bottom-to-top for Persian but
+    # top-to-bottom for English. In pdf.js (bottom-left, y-up) space that is
+    # ascending-Y for Persian and descending-Y for English.
+    rows = sorted(box, key=lambda it: it["y"], reverse=is_english)
     lines = []
     for it in rows:
         if lines and abs(lines[-1]["y"] - it["y"]) <= 3:
@@ -144,25 +150,76 @@ def _clean_box(box, is_english):
         if t:
             texts.append(t)
 
-    counts = {}
-    for t in texts:
-        counts[_norm(t)] = counts.get(_norm(t), 0) + 1
-    repeated = [t for t in texts if counts.get(_norm(t), 0) >= 2]
-    chosen = repeated if repeated else texts
+    kept = _majority_lines(texts)
+    if kept is None:
+        # Fallback: keep repeated lines (dropping one-off header/noise lines),
+        # then dedup preserving order.
+        counts = {}
+        for t in texts:
+            counts[_norm(t)] = counts.get(_norm(t), 0) + 1
+        repeated = [t for t in texts if counts.get(_norm(t), 0) >= 2]
+        chosen = repeated if repeated else texts
+        seen, kept = set(), []
+        for t in chosen:
+            nrm = _norm(t)
+            if not nrm or nrm in seen:
+                continue
+            seen.add(nrm)
+            kept.append(t)
 
-    seen, kept = set(), []
-    for t in chosen:
-        nrm = _norm(t)
-        if not nrm or nrm in seen:
-            continue
-        seen.add(nrm)
-        kept.append(t)
     desc = re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', ' '.join(kept))).strip()
     # After reordering, the item number sits at the very start ("10 فونداسیون…");
     # strip a single leading number (with optional dot). Numbers inside the text
     # (e.g. "10 درصد") are untouched.
-    desc = re.sub(r'^\s*\d{1,2}\.?\s*', '', desc, count=1)
+    desc = re.sub(r'^\s*[\d۰-۹]{1,2}\.?\s*', '', desc, count=1)
     return desc
+
+
+_NUM_LINE = re.compile(r'^\s*[\d۰-۹]{1,2}\s*[.\-)]?\s+\S')
+
+
+def _majority_lines(texts):
+    """Split `texts` into the repeated copies of the paragraph (each copy starts
+    with the item-number line) and return one clean copy by per-line majority
+    vote across the copies. Returns None when fewer than 2 alignable copies are
+    found, so the caller can fall back to the simpler repeat/dedup path."""
+    starts = [i for i, t in enumerate(texts) if _NUM_LINE.match(t)]
+    if len(starts) < 2:
+        return None
+    bounds = starts + [len(texts)]
+    copies = [texts[a:b] for a, b in zip(bounds, bounds[1:])]
+    # Align only the copies that share the most common line count.
+    from collections import Counter
+    modal_len = Counter(len(c) for c in copies).most_common(1)[0][0]
+    good = [c for c in copies if len(c) == modal_len]
+    if len(good) < 2:
+        return None
+    out = []
+    for i in range(modal_len):
+        col = [c[i] for c in good]
+        best = Counter(_norm(x) for x in col).most_common(1)[0][0]
+        out.append(next(x for x in col if _norm(x) == best))
+    return out
+
+
+def _watermark_texts(doc, min_pages=8):
+    """Identify stamped notes/watermarks: a span whose text appears verbatim on
+    many distinct pages (e.g. a reviewer annotation "battery wo falt darad").
+    These bleed into description lines, so we drop them everywhere. Real
+    checklist text never recurs across this many pages."""
+    from collections import defaultdict
+    pages = defaultdict(set)
+    for pno, page in enumerate(doc):
+        for it in _page_fragments(page):
+            s = it["str"].strip()
+            # Keep the OK / Not OK checkbox markers — they recur on every page
+            # but are the anchors that locate each row.
+            if NOTOK_EXACT.match(s) or CHECK_GLYPH.search(s):
+                continue
+            nrm = _norm(it["str"])
+            if nrm:
+                pages[nrm].add(pno)
+    return {t for t, ps in pages.items() if len(ps) >= min_pages}
 
 
 def extract_raw_items(pdf_path):
@@ -173,10 +230,12 @@ def extract_raw_items(pdf_path):
     doc = fitz.open(pdf_path)
     full_text = doc[0].get_text() if doc.page_count else ""
     is_english = not bool(ARABIC.search(full_text))
+    watermarks = _watermark_texts(doc)
     tasks = []
     counter = 1
     for page_index, page in enumerate(doc):
-        items = _page_fragments(page)
+        items = [it for it in _page_fragments(page)
+                 if _norm(it["str"]) not in watermarks]
         ok_items    = [it for it in items if OK_RE.match(it["str"])]
         notok_items = [it for it in items if NOTOK_RE.search(it["str"])]
         anchors = [n for n in notok_items

@@ -14,19 +14,28 @@ MINIO_BASE = os.getenv("MINIO_BASE", "http://10.130.154.133:9000/pm-photos")
 PHOTO_MAX  = int(os.getenv("PHOTO_MAX_INDEX", "50"))
 GPS_RADIUS = int(os.getenv("GPS_RADIUS_METERS", "300"))
 DATE_TOL   = int(os.getenv("DATE_TOLERANCE_DAYS", "3"))
-LLM_IMAGE_MAX_PX = int(os.getenv("LLM_IMAGE_MAX_PX", "0"))   # 0 = full-size (no downscaling)
+# Validation sends ALL of an item's photos in ONE request. Full-size images
+# blow past vLLM's context/multimodal limit → 400 Bad Request on multi-photo
+# items. The browser (Chromium) engine downscaled each photo to 1000px wide at
+# JPEG quality 0.7 before validating — that is exactly the configuration that
+# produced the known-good results, so we match it. (Date/GPS are read from the
+# full-size image separately by the backend metadata extractor, so stamped-text
+# accuracy is unaffected.) Set LLM_IMAGE_MAX_W=0 to send full-size.
+LLM_IMAGE_MAX_W   = int(os.getenv("LLM_IMAGE_MAX_W", "1000"))
+LLM_IMAGE_QUALITY = int(os.getenv("LLM_IMAGE_QUALITY", "70"))
 
 
 def _shrink(jpg_bytes):
-    """Downscale an image to LLM_IMAGE_MAX_PX longest side for the LLM call."""
-    if LLM_IMAGE_MAX_PX <= 0:        # disabled → send full-resolution image
+    """Downscale to LLM_IMAGE_MAX_W width (browser-parity) for the LLM call."""
+    if LLM_IMAGE_MAX_W <= 0:         # disabled → send full-resolution image
         return jpg_bytes
     try:
         img = Image.open(io.BytesIO(jpg_bytes)).convert("RGB")
-        if max(img.size) > LLM_IMAGE_MAX_PX:
-            img.thumbnail((LLM_IMAGE_MAX_PX, LLM_IMAGE_MAX_PX))
+        if img.width > LLM_IMAGE_MAX_W:
+            scale = LLM_IMAGE_MAX_W / img.width
+            img = img.resize((LLM_IMAGE_MAX_W, max(1, int(img.height * scale))))
         buf = io.BytesIO()
-        img.save(buf, "JPEG", quality=85)
+        img.save(buf, "JPEG", quality=LLM_IMAGE_QUALITY)
         return buf.getvalue()
     except Exception:
         return jpg_bytes
