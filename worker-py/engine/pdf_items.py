@@ -60,16 +60,50 @@ def _norm(s):
     return re.sub(r'[\s.,،؛;:()\-\d]', '', unicodedata.normalize('NFKC', s)).strip()
 
 
+def _is_rtl(c):
+    return ('؀' <= c <= 'ۿ') or ('ﭐ' <= c <= '﷿') or ('ﹰ' <= c <= '﻿')
+
+
+def _is_ltr(c):
+    return c.isascii() and c.isalnum()
+
+
+def _reorder_line(text):
+    """PDF text layers store mixed RTL+LTR (Persian + English words / numbers) in
+    *visual* order, so a raw read scrambles embedded English and the item number
+    (e.g. "برطرف کنیدCMWO" / "فونداسیون10"). Split the line into maximal
+    Persian / Latin runs (neutral chars stick to the current run), reverse the
+    RUN order, keep each run internal → correct logical reading order.
+    No LLM involved."""
+    runs, cur, ct = [], '', None
+    for ch in text:
+        t = 'R' if _is_rtl(ch) else ('L' if _is_ltr(ch) else None)
+        if t is None:
+            cur += ch
+            continue
+        if ct is None:
+            ct, cur = t, cur + ch
+        elif t == ct:
+            cur += ch
+        else:
+            runs.append(cur); cur, ct = ch, t
+    if cur:
+        runs.append(cur)
+    runs = [r.strip() for r in reversed(runs) if r.strip()]
+    return re.sub(r'\s+', ' ', ' '.join(runs)).strip()
+
+
 def _clean_box(box):
     """Deterministically turn a row's raw fragments into ONE clean description.
 
     PM reports repeat each item's description across ~3 table rows (text row,
     checkbox row, photo row); header pages also bleed header fields in. We:
       1. group fragments into lines (Y bands), keeping ascending-Y reading order;
-      2. keep lines that REPEAT (the description appears >=2x) and drop one-off
+      2. rebuild each line in correct logical order via _reorder_line (fixes
+         embedded English words and the item number);
+      3. keep lines that REPEAT (the description appears >=2x) and drop one-off
          lines (headers/noise) — falling back to all lines if nothing repeats;
-      3. keep the first occurrence of each unique line, NFKC-normalise, and strip
-         a leading item number.
+      4. dedup, NFKC-normalise, and strip a leading item number.
     No LLM involved.
     """
     rows = sorted(box, key=lambda it: it["y"])
@@ -81,8 +115,9 @@ def _clean_box(box):
             lines.append({"y": it["y"], "items": [it]})
     texts = []
     for ln in lines:
-        ln["items"].sort(key=lambda i: -i["x"])  # RTL within a line
-        texts.append(re.sub(r'\s+', ' ', ' '.join(i["str"] for i in ln["items"])).strip())
+        ln["items"].sort(key=lambda i: i["x"])  # visual left→right
+        raw = re.sub(r'\s+', ' ', ' '.join(i["str"] for i in ln["items"])).strip()
+        texts.append(_reorder_line(unicodedata.normalize('NFKC', raw)))
 
     counts = {}
     for t in texts:
@@ -98,7 +133,10 @@ def _clean_box(box):
         seen.add(nrm)
         kept.append(t)
     desc = re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', ' '.join(kept))).strip()
-    desc = re.sub(r'(?<!\d)\d{1,2}\.\s*', '', desc, count=1)  # drop a leading "12."
+    # After reordering, the item number sits at the very start ("10 فونداسیون…");
+    # strip a single leading number (with optional dot). Numbers inside the text
+    # (e.g. "10 درصد") are untouched.
+    desc = re.sub(r'^\s*\d{1,2}\.?\s*', '', desc, count=1)
     return desc
 
 
