@@ -2,9 +2,11 @@
 LLM verdict, then apply system-cause overrides. Mirrors the SPA validateAllItems.
 """
 import os
+import io
 import json
 import base64
 import requests
+from PIL import Image
 
 from . import geo, llm
 
@@ -12,6 +14,20 @@ MINIO_BASE = os.getenv("MINIO_BASE", "http://10.130.154.133:9000/pm-photos")
 PHOTO_MAX  = int(os.getenv("PHOTO_MAX_INDEX", "50"))
 GPS_RADIUS = int(os.getenv("GPS_RADIUS_METERS", "300"))
 DATE_TOL   = int(os.getenv("DATE_TOLERANCE_DAYS", "3"))
+LLM_IMAGE_MAX_PX = int(os.getenv("LLM_IMAGE_MAX_PX", "1024"))
+
+
+def _shrink(jpg_bytes):
+    """Downscale an image to LLM_IMAGE_MAX_PX longest side for the LLM call."""
+    try:
+        img = Image.open(io.BytesIO(jpg_bytes)).convert("RGB")
+        if max(img.size) > LLM_IMAGE_MAX_PX:
+            img.thumbnail((LLM_IMAGE_MAX_PX, LLM_IMAGE_MAX_PX))
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=85)
+        return buf.getvalue()
+    except Exception:
+        return jpg_bytes
 
 
 def _get(url):
@@ -29,7 +45,10 @@ def fetch_photos(task_id, row):
         jpg = _get(f"{MINIO_BASE}/photos/{task_id}/{row}/{i}.jpg")
         if not jpg:
             break
-        b64 = "data:image/jpeg;base64," + base64.b64encode(jpg.content).decode()
+        # Downscale the copy sent to the LLM (display still uses the full-size
+        # photo from MinIO). Cuts vision-encoder memory → avoids vLLM OOM under
+        # concurrency and speeds inference.
+        b64 = "data:image/jpeg;base64," + base64.b64encode(_shrink(jpg.content)).decode()
         meta = {}
         mj = _get(f"{MINIO_BASE}/photos/{task_id}/{row}/{i}.json")
         if mj:

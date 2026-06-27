@@ -102,9 +102,17 @@ def extract_fields_to_minio(pil_image, prompt_path, task_id, inspection_num, img
 
     prompt = load_prompt(prompt_path)
 
-    # Encode PIL image to base64 (no temp file needed)
+    # Downscale a COPY for the LLM only (the full-size photo is stored separately
+    # in image_extractor). Large images blow up the vision encoder's activation
+    # memory and token count, which causes vLLM OOM (500) under concurrency and
+    # slows inference. Shrinking to ~1024px longest side fixes both.
+    max_px = int(os.environ.get("LLM_IMAGE_MAX_PX", "1024"))
+    llm_img = pil_image
+    if max(pil_image.size) > max_px:
+        llm_img = pil_image.copy()
+        llm_img.thumbnail((max_px, max_px))
     buf = io.BytesIO()
-    pil_image.save(buf, "JPEG", quality=95)
+    llm_img.save(buf, "JPEG", quality=85)
     b64 = base64.b64encode(buf.getvalue()).decode()
     data_url = f"data:image/jpeg;base64,{b64}"
 
