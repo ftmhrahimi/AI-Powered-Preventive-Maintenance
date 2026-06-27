@@ -14,13 +14,28 @@ from . import prompts
 LLM_URL   = os.getenv("LLM_SERVER_URL", "http://10.130.154.133:8000/v1/chat/completions")
 LLM_MODEL = os.getenv("LLM_MODEL_NAME", "./")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "3"))
+LLM_RETRY_DELAY = float(os.getenv("LLM_RETRY_DELAY", "2.0"))
 
 
 def _chat(messages, temperature=0.0):
-    r = requests.post(LLM_URL, json={"model": LLM_MODEL, "messages": messages,
-                                     "temperature": temperature}, timeout=LLM_TIMEOUT)
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"] or ""
+    """Call vLLM with retry/backoff on transient failures (5xx / timeouts) so a
+    single LLM hiccup doesn't fail the whole item/run."""
+    import time
+    delay = LLM_RETRY_DELAY
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
+        try:
+            r = requests.post(LLM_URL, json={"model": LLM_MODEL, "messages": messages,
+                                             "temperature": temperature}, timeout=LLM_TIMEOUT)
+            if r.status_code >= 500:
+                raise requests.HTTPError(f"{r.status_code} from LLM")
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"] or ""
+        except Exception:
+            if attempt >= LLM_MAX_RETRIES:
+                raise
+            time.sleep(delay)
+            delay *= 2
 
 
 def _img_msg(text, image_b64_urls):
