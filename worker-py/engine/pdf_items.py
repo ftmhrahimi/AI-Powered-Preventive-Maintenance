@@ -29,19 +29,23 @@ def fix_persian(text: str) -> str:
 
 
 def _page_fragments(page):
-    """Text fragments as {'str','x','y'} with Y in pdf.js (bottom-left) space."""
+    """Text fragments as {'str','x','y','chars'} with Y in pdf.js (bottom-left)
+    space. `chars` is the per-glyph list [{'c','x'}] sorted later by x to recover
+    true visual order — PyMuPDF's span string is NOT reliably visual for RTL."""
     H = page.rect.height
     out = []
-    for block in page.get_text("dict")["blocks"]:
+    for block in page.get_text("rawdict")["blocks"]:
         if block.get("type") != 0:
             continue
         for line in block["lines"]:
             for span in line["spans"]:
-                t = (span["text"] or "").strip()
+                chars = [{"c": c["c"], "x": c["bbox"][0]}
+                         for c in span.get("chars", []) if c.get("c")]
+                t = "".join(c["c"] for c in chars).strip()
                 if not t:
                     continue
                 ox, oy = span["origin"]
-                out.append({"str": t, "x": ox, "y": H - oy})
+                out.append({"str": t, "x": ox, "y": H - oy, "chars": chars})
     return out
 
 
@@ -60,47 +64,67 @@ def _norm(s):
     return re.sub(r'[\s.,،؛;:()\-\d]', '', unicodedata.normalize('NFKC', s)).strip()
 
 
-def _is_rtl(c):
-    return ('؀' <= c <= 'ۿ') or ('ﭐ' <= c <= '﷿') or ('ﹰ' <= c <= '﻿')
-
-
 def _is_ltr(c):
     return c.isascii() and c.isalnum()
 
 
-def _reorder_line(text):
-    """PDF text layers store mixed RTL+LTR (Persian + English words / numbers) in
-    *visual* order, so a raw read scrambles embedded English and the item number
-    (e.g. "برطرف کنیدCMWO" / "فونداسیون10"). Split the line into maximal
-    Persian / Latin runs (neutral chars stick to the current run), reverse the
-    RUN order, keep each run internal → correct logical reading order.
+# Bidi mirrored characters: when an RTL run is reversed for display, paired
+# punctuation must be swapped so "(" stays an opener in logical order, etc.
+_MIRROR = {'(': ')', ')': '(', '[': ']', ']': '[', '{': '}', '}': '{',
+           '<': '>', '>': '<', '«': '»', '»': '«'}
+
+
+def _vis_to_logical_rtl(vis):
+    """Convert a single line given in true VISUAL order (left→right as displayed)
+    into logical reading order for an RTL (Persian) line.
+
+    Reversing the visual order yields logical order for the RTL letters (the
+    sentence-ending period that sits at the far left visually lands at the end).
+    Two corrections follow standard bidi: (1) mirror paired brackets — a visual
+    ')' is logically '('; (2) embedded Latin/number runs (e.g. "PM-2025…",
+    "CMWO") get reversed by the flip, so re-reverse each Latin run to restore it.
     No LLM involved."""
-    runs, cur, ct = [], '', None
-    for ch in text:
-        t = 'R' if _is_rtl(ch) else ('L' if _is_ltr(ch) else None)
-        if t is None:
-            cur += ch
-            continue
-        if ct is None:
-            ct, cur = t, cur + ch
-        elif t == ct:
-            cur += ch
+    rev = ''.join(_MIRROR.get(c, c) for c in reversed(vis))
+    out, i, n = [], 0, len(rev)
+    while i < n:
+        if _is_ltr(rev[i]):
+            j = i
+            # extend across a Latin run, swallowing inner separators (-:/.,)
+            while j < n and (_is_ltr(rev[j]) or
+                             (rev[j] in '-:/.,' and j + 1 < n and _is_ltr(rev[j + 1]))):
+                j += 1
+            out.append(rev[i:j][::-1])
+            i = j
         else:
-            runs.append(cur); cur, ct = ch, t
-    if cur:
-        runs.append(cur)
-    runs = [r.strip() for r in reversed(runs) if r.strip()]
-    return re.sub(r'\s+', ' ', ' '.join(runs)).strip()
+            out.append(rev[i]); i += 1
+    return re.sub(r'\s+', ' ', ''.join(out)).strip()
 
 
-def _clean_box(box):
+def _line_text(chars, is_english):
+    """Build one line's logical text from its glyphs. Sort by x for true visual
+    order, then: English/LTR docs read left→right as-is; Persian/RTL docs need
+    the visual→logical flip.
+
+    NFKC is applied AFTER the RTL flip so that a lam-alef ligature glyph (ﻼ),
+    which expands to two chars 'لا', is reversed as a single unit first and only
+    then expanded — otherwise the reversal would swap them to 'ال'."""
+    chars = sorted(chars, key=lambda c: c["x"])
+    vis = re.sub(r'\s+', ' ', ''.join(c["c"] for c in chars)).strip()
+    if not vis:
+        return ''
+    logical = vis if is_english else _vis_to_logical_rtl(vis)
+    return re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', logical)).strip()
+
+
+def _clean_box(box, is_english):
     """Deterministically turn a row's raw fragments into ONE clean description.
 
     PM reports repeat each item's description across ~3 table rows (text row,
     checkbox row, photo row); header pages also bleed header fields in. We:
       1. group fragments into lines (Y bands), keeping ascending-Y reading order;
-      2. rebuild each line in correct logical order via _reorder_line (fixes
-         embedded English words and the item number);
+      2. rebuild each line in correct logical order from its glyphs (visual x
+         order → logical via _line_text: identity for English, bidi flip for
+         Persian, fixing embedded English/numbers and the item number);
       3. keep lines that REPEAT (the description appears >=2x) and drop one-off
          lines (headers/noise) — falling back to all lines if nothing repeats;
       4. dedup, NFKC-normalise, and strip a leading item number.
@@ -115,9 +139,10 @@ def _clean_box(box):
             lines.append({"y": it["y"], "items": [it]})
     texts = []
     for ln in lines:
-        ln["items"].sort(key=lambda i: i["x"])  # visual left→right
-        raw = re.sub(r'\s+', ' ', ' '.join(i["str"] for i in ln["items"])).strip()
-        texts.append(_reorder_line(unicodedata.normalize('NFKC', raw)))
+        chars = [c for it in ln["items"] for c in it["chars"]]
+        t = _line_text(chars, is_english)
+        if t:
+            texts.append(t)
 
     counts = {}
     for t in texts:
@@ -167,7 +192,7 @@ def extract_raw_items(pdf_path):
                    if it["y"] < top and it["y"] > bottom and it["y"] > bottom + 3
                    and not NOTOK_EXACT.match(it["str"].strip())
                    and not CHECK_GLYPH.search(it["str"])]
-            desc = _clean_box(box)
+            desc = _clean_box(box, is_english)
             if len(desc) > 5:
                 tasks.append({"num": counter, "desc": desc, "result": None,
                               "page": page_index, "anchor_y": y})
