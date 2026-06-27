@@ -150,6 +150,14 @@ def _clean_box(box, is_english):
         if t:
             texts.append(t)
 
+    # The first box (top of a page) also captures the report header above the
+    # first item ("Task ID: …", "Report FME: …"). The real description begins at
+    # the item-number line, so drop everything before it. This matters most when
+    # an item appears only once (no repetition for the majority vote to exploit).
+    first_num = next((i for i, t in enumerate(texts) if _NUM_LINE.match(t)), None)
+    if first_num is not None:
+        texts = texts[first_num:]
+
     kept = _majority_lines(texts)
     if kept is None:
         # Fallback: keep repeated lines (dropping one-off header/noise lines),
