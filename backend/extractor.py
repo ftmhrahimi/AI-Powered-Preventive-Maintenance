@@ -131,27 +131,32 @@ def extract_fields_to_minio(pil_image, prompt_path, task_id, inspection_num, img
     }
 
     # Retry transient LLM failures (5xx / timeouts / connection resets) with
-    # backoff so a single vLLM hiccup doesn't fail the whole extraction job.
+    # backoff. Metadata is BEST-EFFORT: if it still fails after retries, we log
+    # and fall back to "unknown" for this one image instead of failing the whole
+    # report. An unknown date/GPS just makes that item conservatively flag
+    # date/GPS-missing — far better than losing the entire job to one hiccup.
     attempts = int(os.environ.get("LLM_MAX_RETRIES", "3"))
     delay = float(os.environ.get("LLM_RETRY_DELAY", "2.0"))
-    res = None
+    content = None
     for attempt in range(1, attempts + 1):
         try:
             res = requests.post(LLM_SERVER_URL, json=payload, timeout=LLM_TIMEOUT)
             if res.status_code >= 500:
                 raise requests.HTTPError(f"{res.status_code} from LLM")
             res.raise_for_status()
+            content = res.json()["choices"][0]["message"]["content"]
             break
         except Exception as e:
             if attempt >= attempts:
-                raise
+                print(f"LLM metadata failed after {attempts} attempts ({e}); using 'unknown'")
+                content = None
+                break
             print(f"LLM call failed (attempt {attempt}/{attempts}): {e}; retrying in {delay}s")
             time.sleep(delay)
             delay *= 2
-    content = res.json()["choices"][0]["message"]["content"]
 
     try:
-        result = json.loads(content)
+        result = json.loads(content) if content else {}
     except json.JSONDecodeError:
         result = {}
 
