@@ -116,21 +116,27 @@ def _line_text(chars, is_english):
     return re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', logical)).strip()
 
 
-def _clean_box(box, is_english):
-    """Deterministically turn a row's raw fragments into ONE clean description.
+# An item-number line: "12.", "1.", "1)" at the very start. The dot/paren is
+# REQUIRED so header dates ("2025-06-02 …") and in-text numbers ("20 rusty …")
+# are not mistaken for item numbers.
+_ITEM_LINE = re.compile(r'^\s*([\d۰-۹]{1,2})\s*[.．)]\s*\S')
 
-    PM reports repeat each item's description across ~3 table rows (text row,
-    checkbox row, photo row); header pages also bleed header fields in. We:
-      1. group fragments into lines (Y bands), keeping ascending-Y reading order;
-      2. rebuild each line in correct logical order from its glyphs (visual x
-         order → logical via _line_text: identity for English, bidi flip for
-         Persian, fixing embedded English/numbers and the item number);
-      3. segment the lines into the ~3 repeated copies (each starts with the
-         item number) and take a per-line MAJORITY VOTE across copies, so a copy
-         polluted by header/footer bleed can't corrupt the description; fall back
-         to a repeat-filter + dedup when copies can't be aligned;
-      4. NFKC-normalise and strip a leading item number.
-    No LLM involved.
+
+def _clean_box(box, is_english):
+    """Turn a row's raw fragments into a LIST of clean descriptions — usually
+    one, but more when the box holds several items (e.g. a checkbox anchor was
+    missed and two items merged into one box).
+
+    Steps, no LLM involved:
+      1. group fragments into lines (Y bands) in reading order;
+      2. rebuild each line in logical order from its glyphs (_line_text: identity
+         for English, bidi flip for Persian);
+      3. segment lines into copies at each printed item-number line and GROUP the
+         copies by that printed number — so the ~3 repeated copies of one item
+         merge together, while two genuinely different items (12 vs 13) stay
+         separate even if they share a box and an identical first wrapped line;
+      4. per item, per-line majority vote across its copies, then strip the
+         leading number. Header text before the first numbered line is dropped.
     """
     # Reading order differs by language (matches the browser sort): these PM
     # PDFs stack a paragraph's wrapped lines bottom-to-top for Persian but
@@ -150,64 +156,78 @@ def _clean_box(box, is_english):
         if t:
             texts.append(t)
 
-    # The first box (top of a page) also captures the report header above the
-    # first item ("Task ID: …", "Report FME: …"). The real description begins at
-    # the item-number line, so drop everything before it. This matters most when
-    # an item appears only once (no repetition for the majority vote to exploit).
-    first_num = next((i for i, t in enumerate(texts) if _NUM_LINE.match(t)), None)
-    if first_num is not None:
-        texts = texts[first_num:]
+    starts = [i for i, t in enumerate(texts) if _ITEM_LINE.match(t)]
+    if not starts:
+        # No numbered items in this box — emit a single deduped description and
+        # let the caller decide (covers reports whose numbers lack a dot).
+        return [_clean_legacy(texts)]
 
-    kept = _majority_lines(texts)
-    if kept is None:
-        # Fallback: keep repeated lines (dropping one-off header/noise lines),
-        # then dedup preserving order.
-        counts = {}
-        for t in texts:
-            counts[_norm(t)] = counts.get(_norm(t), 0) + 1
-        repeated = [t for t in texts if counts.get(_norm(t), 0) >= 2]
-        chosen = repeated if repeated else texts
-        seen, kept = set(), []
-        for t in chosen:
-            nrm = _norm(t)
-            if not nrm or nrm in seen:
-                continue
-            seen.add(nrm)
-            kept.append(t)
-
-    desc = re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', ' '.join(kept))).strip()
-    # After reordering, the item number sits at the very start ("10 فونداسیون…");
-    # strip a single leading number (with optional dot). Numbers inside the text
-    # (e.g. "10 درصد") are untouched.
-    desc = re.sub(r'^\s*[\d۰-۹]{1,2}\.?\s*', '', desc, count=1)
-    return desc
-
-
-_NUM_LINE = re.compile(r'^\s*[\d۰-۹]{1,2}\s*[.\-)]?\s+\S')
-
-
-def _majority_lines(texts):
-    """Split `texts` into the repeated copies of the paragraph (each copy starts
-    with the item-number line) and return one clean copy by per-line majority
-    vote across the copies. Returns None when fewer than 2 alignable copies are
-    found, so the caller can fall back to the simpler repeat/dedup path."""
-    starts = [i for i, t in enumerate(texts) if _NUM_LINE.match(t)]
-    if len(starts) < 2:
-        return None
+    # Group copies by their printed item number, preserving first-seen order.
+    # Lines before the first number (report header bleed) are excluded.
+    from collections import OrderedDict
+    groups = OrderedDict()
     bounds = starts + [len(texts)]
-    copies = [texts[a:b] for a, b in zip(bounds, bounds[1:])]
-    # Align only the copies that share the most common line count.
+    for a, b in zip(bounds, bounds[1:]):
+        copy = texts[a:b]
+        num = unicodedata.normalize('NFKC', _ITEM_LINE.match(copy[0]).group(1))
+        groups.setdefault(num, []).append(copy)
+    max_copies = max(len(cs) for cs in groups.values())
+    if max_copies == 1:
+        # Single-copy report (each item printed once): every distinct number is a
+        # real item. Emit them all — this recovers an item that lost its checkbox
+        # anchor and got merged into a neighbour's box (12 and 13 sharing a box).
+        return [_merge_copies(cs) for cs in groups.values()]
+    # Repeated-copy report (each item printed ~3×): the box centres on one item
+    # and catches a stray line from a neighbour. Emit a single description by
+    # majority vote across all copies (the dominant item wins); this keeps short,
+    # near-identical items (e.g. "… after 20/40 minutes") from interleaving into
+    # spurious extras.
+    all_copies = [c for cs in groups.values() for c in cs]
+    return [_merge_copies(all_copies)]
+
+
+def _finish(lines):
+    desc = re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', ' '.join(lines))).strip()
+    # Strip a single leading item number (with optional dot). Numbers inside the
+    # text (e.g. "10 درصد") are untouched.
+    return re.sub(r'^\s*[\d۰-۹]{1,2}\.?\s*', '', desc, count=1)
+
+
+def _merge_copies(copies):
+    """Merge the repeated copies of ONE item into a clean description. When ≥2
+    copies share the most common line count, take a per-line majority vote so a
+    single header/footer-polluted copy can't win; otherwise use the fullest copy
+    (handles the single-copy case without ever truncating to a shared prefix)."""
     from collections import Counter
-    modal_len = Counter(len(c) for c in copies).most_common(1)[0][0]
-    good = [c for c in copies if len(c) == modal_len]
-    if len(good) < 2:
-        return None
-    out = []
-    for i in range(modal_len):
-        col = [c[i] for c in good]
-        best = Counter(_norm(x) for x in col).most_common(1)[0][0]
-        out.append(next(x for x in col if _norm(x) == best))
-    return out
+    if len(copies) >= 2:
+        modal_len = Counter(len(c) for c in copies).most_common(1)[0][0]
+        good = [c for c in copies if len(c) == modal_len]
+        if len(good) >= 2:
+            out = []
+            for i in range(modal_len):
+                col = [c[i] for c in good]
+                best = Counter(_norm(x) for x in col).most_common(1)[0][0]
+                out.append(next(x for x in col if _norm(x) == best))
+            return _finish(out)
+    return _finish(max(copies, key=lambda c: sum(len(x) for x in c)))
+
+
+def _clean_legacy(texts):
+    """Single-description fallback for boxes with no printed item numbers: keep
+    repeated lines (dropping one-off header/noise), then dedup preserving order."""
+    counts = {}
+    for t in texts:
+        counts[_norm(t)] = counts.get(_norm(t), 0) + 1
+    repeated = [t for t in texts if counts.get(_norm(t), 0) >= 2]
+    chosen = repeated if repeated else texts
+    seen, kept = set(), []
+    for t in chosen:
+        nrm = _norm(t)
+        if not nrm or nrm in seen:
+            continue
+        seen.add(nrm)
+        kept.append(t)
+    return _finish(kept)
 
 
 def _watermark_texts(doc, min_pages=8):
@@ -259,11 +279,12 @@ def extract_raw_items(pdf_path):
                    if it["y"] < top and it["y"] > bottom and it["y"] > bottom + 3
                    and not NOTOK_EXACT.match(it["str"].strip())
                    and not CHECK_GLYPH.search(it["str"])]
-            desc = _clean_box(box, is_english)
-            if len(desc) > 5:
-                tasks.append({"num": counter, "desc": desc, "result": None,
-                              "page": page_index, "anchor_y": y})
-                counter += 1
+            # One box can yield several items when checkbox anchors merged.
+            for desc in _clean_box(box, is_english):
+                if len(desc) > 5:
+                    tasks.append({"num": counter, "desc": desc, "result": None,
+                                  "page": page_index, "anchor_y": y})
+                    counter += 1
     return {"items": tasks, "is_english": is_english}
 
 
