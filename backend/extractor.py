@@ -109,7 +109,7 @@ def extract_fields_to_minio(pil_image, prompt_path, task_id, inspection_num, img
     # LLM_IMAGE_MAX_PX <= 0 disables downscaling (full-resolution to the LLM —
     # best accuracy, needed for reading small stamped date/GPS text; use with
     # WORKER_CONCURRENCY=1 to stay within GPU memory).
-    max_px = int(os.environ.get("LLM_IMAGE_MAX_PX", "1024"))
+    max_px = int(os.environ.get("LLM_IMAGE_MAX_PX", "0"))
     llm_img = pil_image
     if max_px > 0 and max(pil_image.size) > max_px:
         llm_img = pil_image.copy()

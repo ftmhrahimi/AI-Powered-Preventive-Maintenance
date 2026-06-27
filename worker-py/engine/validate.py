@@ -14,7 +14,7 @@ MINIO_BASE = os.getenv("MINIO_BASE", "http://10.130.154.133:9000/pm-photos")
 PHOTO_MAX  = int(os.getenv("PHOTO_MAX_INDEX", "50"))
 GPS_RADIUS = int(os.getenv("GPS_RADIUS_METERS", "300"))
 DATE_TOL   = int(os.getenv("DATE_TOLERANCE_DAYS", "3"))
-LLM_IMAGE_MAX_PX = int(os.getenv("LLM_IMAGE_MAX_PX", "1024"))
+LLM_IMAGE_MAX_PX = int(os.getenv("LLM_IMAGE_MAX_PX", "0"))   # 0 = full-size (no downscaling)
 
 
 def _shrink(jpg_bytes):
