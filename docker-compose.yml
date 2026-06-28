@@ -43,52 +43,30 @@ services:
     networks:
       - pm-net
 
-  # Headless-browser worker: processes users' files server-side so the work
-  # continues even after they close the browser / shut down their machine.
-  # It drives the exact same frontend pipeline in headless Chromium, so the
-  # output is identical to running locally.
-  worker:
-    build: ./worker
-    image: pm-portal-worker:latest
-    container_name: pm-worker
-    env_file: .env
-    environment:
-      WORKER_BACKEND_URL: http://backend:9700
-      WORKER_FRONTEND_URL: http://frontend
-      WORKER_TOKEN: ${WORKER_TOKEN:-}
-      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
-      # How many files process at once (each in its own headless browser).
-      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
-    depends_on:
-      - backend
-      - frontend
-    restart: unless-stopped
-    networks:
-      - pm-net
-
-  # Chromium-free Python engine worker (Option C). Opt-in via a compose profile
-  # so it never competes with the default `worker`. To switch engines:
-  #   docker compose stop worker
-  #   docker compose --profile python-engine up -d --build worker-py
-  # To revert: stop worker-py, start worker. (Both poll the same queue, so run
-  # only ONE at a time.)
+  # Processing engine: a Chromium-free Python worker. It polls the backend queue,
+  # extracts checklist items, detects each row's OK/Not-OK checkbox, validates the
+  # photos against the LLM, and writes results back — the same pipeline the SPA
+  # used to run, now entirely server-side with no browser (small image, low RAM).
+  # This is the default and only worker.
   worker-py:
     build: ./worker-py
     image: pm-portal-worker-py:latest
     container_name: pm-worker-py
-    profiles: ["python-engine"]
     env_file: .env
     environment:
       WORKER_BACKEND_URL: http://backend:9700
       MINIO_BASE: http://minio:9000/${MINIO_BUCKET:-pm-photos}
       WORKER_TOKEN: ${WORKER_TOKEN:-}
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
+      # How many files process at once (each in its own thread).
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
-      # Mirror the browser pipeline's photo-extraction toggle and thresholds.
-      EXTRACT_PHOTOS: ${FRONTEND_EXTRACT_PHOTOS:-false}
       CHECKBOX_DETECT: ${CHECKBOX_DETECT:-true}
       LLM_SERVER_URL: ${LLM_SERVER_URL:-}
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-./}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
+      # Validation photos are downscaled to this width (browser parity; avoids
+      # vLLM 400s on multi-photo items). Set to 0 to send full-size.
+      LLM_IMAGE_MAX_W: ${LLM_IMAGE_MAX_W:-1000}
       GPS_RADIUS_METERS: ${GPS_RADIUS_METERS:-300}
       DATE_TOLERANCE_DAYS: ${DATE_TOLERANCE_DAYS:-3}
       PHOTO_MAX_INDEX: ${PHOTO_MAX_INDEX:-50}
