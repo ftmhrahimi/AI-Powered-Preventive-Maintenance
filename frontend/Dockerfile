@@ -11,8 +11,6 @@ FROM nginx:alpine
 
 COPY nginx.conf      /etc/nginx/conf.d/default.conf
 COPY --from=build /build/dist/index.html /usr/share/nginx/html/index.html
-COPY task_rules.json /usr/share/nginx/html/task_rules.json
-COPY js/             /usr/share/nginx/html/js/
 COPY config.js       /etc/nginx/templates/config.js.template
 
 # The official nginx entrypoint renders /etc/nginx/templates/*.template with
