@@ -1,32 +1,27 @@
 """Render a checklist row's checkbox strip to a JPEG (base64 data URL) for the
 vision checkbox detector. Port of the SPA getCheckboxStripImage.
 
-NOTE: the crop offsets below mirror the pdf.js version (cropX=170, cropW=160,
-PADDING=30 at scale 2). pdf.js uses a bottom-left origin; PyMuPDF a top-left one.
-The Y conversion must match engine.pdf_items. ** Needs visual calibration on
-real PDFs before relying on it. **
+Geometry mirrors the pdf.js version exactly: the browser cropped a 160pt-wide,
+60pt-tall band (PADDING=30 above/below the row) starting at x=170pt, rendered at
+2× scale. pdf.js uses a bottom-left origin; PyMuPDF a top-left one, so we convert
+the anchor with `H - anchor_y` (same as engine.pdf_items). The crop is applied
+via get_pixmap(clip=…) so ONLY the row's strip is sent to the LLM — sending the
+whole page would make the "which checkbox is ticked" question unanswerable.
 """
-import io
 import base64
 import fitz
 
 SCALE = 2.0
-CROP_X = 170 * SCALE
-CROP_W = 160 * SCALE
-PADDING = 30 * SCALE
+CROP_X = 170      # pdf points (unscaled); matches browser cropX/SCALE
+CROP_W = 160      # pdf points
+PADDING = 30      # pdf points above and below the anchor row
 
 
 def strip_for_anchor(page, anchor_y_pdfjs):
     """anchor_y_pdfjs is in bottom-left (pdf.js) space, as produced by
-    engine.pdf_items. Returns a base64 'data:image/jpeg' URL."""
+    engine.pdf_items. Returns a base64 'data:image/jpeg' URL of just the row."""
     H = page.rect.height
-    # Render full page at SCALE, then crop the checkbox band around the anchor.
-    pix = page.get_pixmap(matrix=fitz.Matrix(SCALE, SCALE))
-    # Convert anchor to top-left device space.
-    canvas_y = (H - anchor_y_pdfjs) * SCALE - PADDING
-    crop_h = PADDING * 2
-    clip = fitz.IRect(int(CROP_X), int(canvas_y), int(CROP_X + CROP_W), int(canvas_y + crop_h))
-    clip = clip & fitz.IRect(0, 0, pix.width, pix.height)
-    sub = pix.pixmap_from_clip(clip) if hasattr(pix, "pixmap_from_clip") else None
-    img_bytes = (sub or pix).tobytes("jpeg")
-    return "data:image/jpeg;base64," + base64.b64encode(img_bytes).decode()
+    top = (H - anchor_y_pdfjs) - PADDING          # top-left Y of the strip
+    clip = fitz.Rect(CROP_X, top, CROP_X + CROP_W, top + PADDING * 2) & page.rect
+    pix = page.get_pixmap(matrix=fitz.Matrix(SCALE, SCALE), clip=clip)
+    return "data:image/jpeg;base64," + base64.b64encode(pix.tobytes("jpeg")).decode()
