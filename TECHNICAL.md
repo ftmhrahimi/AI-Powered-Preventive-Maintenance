@@ -26,30 +26,33 @@ the work continues.
    Browser (user)        │                 Docker network                │
   ┌───────────────┐      │                                              │
   │ index.html    │ HTTP │  ┌───────────┐    ┌──────────┐   ┌─────────┐ │
-  │ (SPA + engine)│◄────►│  │ frontend  │    │ backend  │   │  minio  │ │
-  └───────────────┘ nginx│  │ (nginx)   │──► │ (Flask + │──►│ (S3 obj │ │
-        ▲                │  │ serves SPA│    │ gunicorn)│   │ storage)│ │
-        │                │  │ proxies   │    └────┬─────┘   └─────────┘ │
-        │                │  │ /api,/pm- │         │                     │
-        │                │  │ photos    │         │ /worker/*           │
-        │                │  └───────────┘    ┌────▼──────┐              │
-        │                │                   │  worker   │  headless    │
-        │  (results via  │                   │ (Playwright Chromium)    │
-        │   server run)  │                   │  runs the SAME SPA code) │
-        └────────────────┼───────────────────┴──────────┬───────────────┘
-                         │                               │ HTTP
-                         └───────────────────────────────▼──────────────►
-                                                  External vLLM (LLM inference)
+  │ (thin SPA:    │◄────►│  │ frontend  │    │ backend  │   │  minio  │ │
+  │  UI only)     │ nginx│  │ (nginx)   │──► │ (Flask + │──►│ (S3 obj │ │
+  └───────────────┘      │  │ serves SPA│    │ gunicorn)│   │ storage)│ │
+                         │  │ proxies   │    └────┬─────┘   └─────────┘ │
+                         │  │ /api,/pm- │         │ ▲ /worker/* queue   │
+                         │  │ photos    │         │ │                   │
+                         │  └───────────┘    ┌────▼─┴─────┐             │
+                         │                   │ worker-py  │  Python,    │
+                         │                   │ (engine,   │  no browser │
+                         │                   │  pure Py)  │             │
+                         └───────────────────┴──────┬─────┴─────────────┘
+                                                     │ HTTP
+                                                     ▼
+                                          External vLLM (LLM inference)
 ```
 
 **Five runtime services** (`docker-compose.yml`):
 - **frontend** — nginx serving the single‑file SPA (`index.html`), and reverse‑
-  proxying `/api/*` to the backend and `/pm-photos/*` to MinIO. The SPA contains
-  the *entire validation engine*.
-- **backend** — Flask app (under gunicorn) for auth, persistence, PDF photo
-  extraction (`/extract`), and the server‑run queue.
-- **worker** — a headless Chromium (Playwright) that loads the **same SPA** and
-  drives its engine, so server‑side runs produce identical output to a browser.
+  proxying `/api/*` to the backend and `/pm-photos/*` to MinIO. The SPA is now
+  **UI only** — selection/upload, run/stop controls, polling, results display,
+  and the admin panel. It contains no processing engine.
+- **backend** — Flask app (under gunicorn) for auth, persistence, PDF **photo
+  extraction** (`/extract`, incl. per‑image date/GPS metadata via the LLM), and
+  the server‑run **queue** (`/worker/*`).
+- **worker-py** — the **processing engine**, pure Python (no browser). It claims
+  files from the queue and extracts checklist items, detects each row's OK/Not‑OK
+  checkbox, validates the photos against the LLM, and writes results back.
 - **minio** — S3‑compatible object store for extracted **photos** and their
   **metadata JSON**.
 - **minio‑init** — one‑shot container that creates the bucket and sets an
@@ -64,13 +67,13 @@ for all AI inference. Not part of the compose stack.
 
 | Layer | Technology |
 |------|------------|
-| Frontend | Single HTML file: vanilla JS (no framework), **pdf.js** (client‑side PDF render/text), Canvas API (checkbox detection), IndexedDB (local PDF cache) |
+| Frontend | Single HTML file: vanilla JS (no framework), IndexedDB (local PDF cache). UI only — no PDF/AI processing |
 | Frontend build | `build.mjs` + `html-minifier-terser` (minify markup/CSS/JS; top‑level names preserved) |
 | Backend | **Python 3 / Flask**, **gunicorn** (WSGI), Flask‑CORS, Flask‑Limiter (rate limiting) |
-| PDF extraction (backend) | **PyMuPDF (fitz)**, **Pillow** |
+| PDF photo extraction (backend) | **PyMuPDF (fitz)**, **Pillow** |
 | Object storage | **MinIO** (S3 API), served read‑only to the browser via nginx `/pm-photos/` |
 | Database | **SQLite** (two files: `pm_validator.db`, `audit.db`) |
-| Headless worker | **Playwright** (sync API) + Chromium, `requests` |
+| Worker engine | **Python 3** (no browser): **PyMuPDF** (item extraction + checkbox strip render), **Pillow**, `requests` |
 | AI inference | External **vLLM** (vision‑capable, OpenAI chat API) |
 | Orchestration | Docker Compose; named volumes for data/logs/storage/minio |
 
@@ -80,21 +83,29 @@ for all AI inference. Not part of the compose stack.
 
 ```
 frontend/
-  index.html        # the SPA + the entire validation engine (~3.9k lines)
+  index.html        # the SPA — UI only (~3.3k lines, no processing engine)
   config.js         # runtime config injected by nginx (envsubst) at container start
   build.mjs         # production minifier
   nginx.conf        # static serving + /api & /pm-photos proxy + CSP headers
   Dockerfile        # build (minify) → nginx:alpine
-  js/pdf.min.js, pdf.worker.min.js
 backend/
-  server.py         # Flask routes (auth, reports, files, extract, server-run, admin, worker)
+  server.py         # Flask routes (auth, reports, files, extract, server-run, admin, worker queue)
   db.py             # SQLite schema + all data-access functions
   extractor.py      # PyMuPDF photo extraction + per-image metadata via LLM → MinIO
   config.py         # env-driven configuration
   gunicorn.conf.py  # WSGI server config
-worker/
-  worker.py         # Playwright headless driver for server-side runs
+worker-py/
+  worker.py         # queue loop: claim / heartbeat / progress / complete
+  engine/
+    pdf_items.py    # deterministic checklist-item extraction (PyMuPDF, RTL/LTR aware)
+    render.py       # render a row's checkbox strip to JPEG for the vision model
+    llm.py          # vLLM client: checkbox detection + per-item validation
+    validate.py     # fetch photos/metadata, date+GPS checks, verdict + overrides
+    geo.py          # haversine, date/GPS checks
+    prompts.py      # checkbox + validation prompts
+    pipeline.py     # process one file: items → checkboxes → validation → aggregate
 docker-compose.yml  # the 5 services + volumes + network
+.env.example        # template for all configuration variables
 DEPLOYMENT.md, USER_GUIDE.md, TEST_PLAN.md
 ```
 
@@ -102,13 +113,16 @@ DEPLOYMENT.md, USER_GUIDE.md, TEST_PLAN.md
 
 ## 5. End‑to‑end processing pipeline (one file)
 
-There are **two LLM uses** and **two stages** (backend extraction, then frontend
-validation). The frontend pipeline is driven either by the user's browser or,
-for server runs, by the headless worker — it is the *same code*.
+There are **three LLM uses** across **two processes**: the **backend** extracts
+photos + reads their metadata, then the **worker** extracts items, detects
+checkboxes, and validates. The browser only selects files, triggers the run, and
+displays results.
 
 1. **Selection & upload** (browser): on folder/file pick, each PDF is uploaded
-   **once** to backend storage (`/api/pdfs/upload`) and cached in IndexedDB.
-2. **Photo extraction** (`processJob` → backend `/extract`):
+   **once** to backend storage (`/api/pdfs/upload`) and cached in IndexedDB. The
+   user clicks **Run** → `POST /api/server-run` enqueues the file, then the
+   browser can be closed.
+2. **Photo extraction** (worker → backend `/extract`):
    - Backend saves the PDF to a temp file and submits an async job to a
      `ThreadPoolExecutor`; tracks it in an in‑memory `JOB_REGISTRY` (job_id).
    - `extractor.process_pdf` (PyMuPDF): finds the **Task ID**, locates each
@@ -118,19 +132,22 @@ for server runs, by the headless worker — it is the *same code*.
    - For each image it calls the **LLM (use #1)** to read EXIF‑like metadata
      (`date_time`, `lat`, `lng`, `taskID`) and uploads it as
      `photos/<taskId>/<row>/<n>.json`. Missing values default to `"unknown"`.
-   - The browser polls `/job/<job_id>` for progress until done.
-3. **Item validation** (frontend `processAudit`/`validateAllItems`):
-   - pdf.js reads the PDF text layer → checklist **items** (number, description,
-     reported OK/NotOK). Checkbox state is also confirmed by rasterising the row
-     to canvas and detecting the ticked box.
+3. **Item extraction & validation** (worker `engine/pipeline.process_file`):
+   - `pdf_items.extract_raw_items` (PyMuPDF) reads the text layer →
+     checklist **items** (number, description) **deterministically** — RTL/LTR
+     aware, header/watermark stripped, repeated copies merged (no LLM, so no
+     transcription drift).
+   - For each row, `render.strip_for_anchor` rasterises the checkbox strip and
+     the **LLM (use #2)** reads the ticked box (OK / NOT_OK).
    - For each item: fetch its photos + metadata JSON from MinIO; compute the
      **date** check (within `DATE_TOLERANCE_DAYS`) and **GPS** check (haversine
      distance ≤ `GPS_RADIUS_METERS` of the site coordinates).
    - Build a validation prompt including the matching **task rule** (if any) and
-     call the **LLM (use #2)** for a verdict: `CONFIRMED | DISPUTED | NO_EVIDENCE`.
+     call the **LLM (use #3)** for a verdict: `CONFIRMED | DISPUTED | NO_EVIDENCE`.
+     Photos are downscaled to `LLM_IMAGE_MAX_W` for this call.
    - System causes (date/GPS failures) force `DISPUTED` regardless of the AI.
-4. **Aggregate & persist**: compute **Acceptance %** = confirmed ÷ total, set the
-   job `done`, and save per‑file state to the backend (`/api/userfiles`). The
+4. **Aggregate & persist**: compute **Acceptance %** = confirmed ÷ total, mark the
+   run `done`, and save per‑file state to the backend (`/api/userfiles`). The
    user can then open and **Save Report** (`/api/reports`) to make it appear in
    dashboards.
 
@@ -139,13 +156,13 @@ for server runs, by the headless worker — it is the *same code*.
 ## 6. Module reference
 
 ### 6.1 Frontend — `frontend/index.html`
-A single page that is both the UI **and** the processing engine. Key subsystems
-(all global functions; inline `onclick` handlers rely on stable top‑level names,
-which the minifier preserves):
+A single page that is the **UI only** — all processing happens in the backend and
+worker. Key subsystems (all global functions; inline `onclick` handlers rely on
+stable top‑level names, which the minifier preserves):
 
-- **Auth/session**: `doLogin`, `doRegister`, `setSessionUser`, `startApp`. Session
-  is held in `localStorage['pm_session']`; on load the app restores the user and
-  their files. (The worker seeds this same key to "log in".)
+- **Auth/session**: `doLogin`, `doRegister`, `setSessionUser`, `startApp`
+  (authenticate via `/api/auth/*`). Session is held in `localStorage['pm_session']`;
+  on load the app restores the user and their files.
 - **File & upload lifecycle**: `handleFiles` (dedup prompt, IndexedDB cache,
   one‑time upload), `uploadFile` / `ensureUploaded` / `retryUpload`, and the
   per‑job `uploadStatus` (`uploading | uploaded | error`) — *independent* of run
@@ -157,14 +174,13 @@ which the minifier preserves):
 - **Server‑run watcher**: `startServerRunView` polls `/api/server-run`, merges
   per‑file state (`mergeServerFiles`), and tracks live files in
   `serverActiveTargets` / `startingFiles`.
-- **Local engine (the real pipeline)**: `runAllLocal` (worker queue, `MAX_
-  CONCURRENT=3`), `processJob`, `validateAllItems`, `buildValidationPrompt`,
-  `extractTasksFromPdf`, checkbox detection, `extractImageMeta`, `haversine`,
-  `fixPersian` (NFKC). **Only the headless worker calls `runAllLocal`** — the
-  human UI delegates to the server.
+- **Photo display**: `fetchPhotosForResults` / `fetchImageAsBase64` pull the
+  finished photos from MinIO for the report view (display only — no validation).
 - **Reports/UI**: `openModal`/`renderModalContent`, lightbox (`openLightbox`),
-  `saveCurrentReport`, dashboards (`renderHistory`, `renderAdmin`), admin tabs
-  (Task Rules, Sites, Users, Audit), `checkLlmHealth` (status pill).
+  `saveCurrentReport`, dashboards (`renderHistory`, `renderAdmin`) with the shared
+  `fillFilterDropdowns` / `renderKpis` helpers, admin tabs (Task Rules, Sites,
+  Users, Audit), `checkLlmHealth` (status pill). CSV imports upload the file to
+  the backend, which parses it (`/api/admin/import-rules-csv`, `…import-sites-csv`).
 
 ### 6.2 Backend — `backend/server.py`
 Flask application (CORS + rate limiting). Responsibilities:
@@ -204,14 +220,17 @@ in §9. Passwords hashed with **SHA‑256** (`hash_password`). Server‑run help
 creds, ports, data/log/storage paths, DB paths). `gunicorn.conf.py` configures
 the WSGI server (workers/threads/bind/logging).
 
-### 6.6 Worker — `worker/worker.py`
-The headless execution engine. `main()` spawns `WORKER_CONCURRENCY` (default 3)
-threads, **each with its own Playwright + Chromium browser**, so multiple files
-process in parallel. Each loop: `claim_run` → open a page as the user (seeds the
-session) → wait for the SPA to restore the user's pending files → `runAllLocal
-([target])` for that one file → poll for completion or per‑run cancellation
-(`run_is_cancelled` by run id) → `complete_run`. A heartbeat thread keeps the run
-fresh. See §7.
+### 6.6 Worker — `worker-py/`
+The processing engine, pure Python (no browser). `worker.py` spawns
+`WORKER_CONCURRENCY` (default 3) threads. Each loop: `POST /worker/claim` →
+delegate the file to the backend `/extract` (photos + metadata) → run
+`engine.pipeline.process_file` (items → checkbox detection → per‑item
+validation → aggregate) → `POST /worker/complete`. A throttled `/worker/run-status`
+poll provides per‑run cancellation, and a heartbeat keeps the run fresh. See §7.
+The `engine/` package mirrors what the SPA used to do in the browser:
+`pdf_items` (deterministic item extraction), `render` (checkbox strip),
+`llm`/`prompts` (vision calls), `geo`/`validate` (date/GPS + verdict),
+`pipeline` (orchestration).
 
 ### 6.7 Infra
 - **`nginx.conf`**: serves the SPA; proxies `/api/` → backend, `/pm-photos/` →
@@ -243,10 +262,11 @@ re‑run independently.
    target).
 2. A worker thread `POST /worker/claim` → backend atomically moves the oldest
    `pending` run to `running` (in‑process lock + guarded UPDATE) and returns the
-   user session.
-3. The worker opens a headless page **as that user**, lets the SPA restore the
-   user's files, and calls `runAllLocal([target])` — the real engine, with
-   `MAX_CONCURRENT=3` *inside* the page (here only the one target is queued).
+   file's owner + target.
+3. The worker processes that one file with `engine.pipeline.process_file`
+   (extract → checkboxes → validate → aggregate), writing progress back to the
+   backend so the UI updates live. `WORKER_CONCURRENCY` files run in parallel,
+   each on its own thread.
 4. A heartbeat thread `POST /worker/heartbeat` keeps `updatedAt` fresh.
 5. The worker polls completion (the target file reaching a terminal state) and
    `run_is_cancelled(run_id)`; on cancel it stops just that page. Then
@@ -266,13 +286,10 @@ until `requeue_stale_running` resets it to `pending` after
 `SERVER_RUN_STALE_SECONDS` (default **900 s**), then any free worker re‑claims it.
 No file is lost.
 
-**State isolation across worker pages (critical).** Each worker page restores the
-**full** file list but processes only its target. Because `setJob → saveUserFiles`
-persists to a *shared* backend store, a naïve full save would overwrite other
-files' live progress. This is prevented by **`__saveScope`**: `runAllLocal` sets
-it to the run's target(s) so each page persists **only its own file**. The human
-page leaves the scope `null` (it owns its whole view). Stops use
-`saveSingleUserFile` for the same reason.
+**State isolation across workers.** Each worker thread processes exactly one
+target and writes back **only that file's** per‑file state (status, percent,
+result), so parallel runs never clobber each other's progress. The browser polls
+`/api/server-run` and merges per‑file updates into its view (`mergeServerFiles`).
 
 ---
 
@@ -416,9 +433,9 @@ jobs), `STOP_ALL_FLAG`. Lost on restart by design.
   are admin‑driven.
 - **`/extract` job state is in‑memory** (`JOB_REGISTRY`) — lost on backend
   restart; server‑run state (which is persisted) is the durable layer.
-- **Per‑file server runs serialise per file across pages** but rely on a single
-  worker process scaling by threads/browsers; very large batches scale by raising
-  `WORKER_CONCURRENCY` (memory‑bound, ~1 Chromium per slot).
+- **Per‑file server runs** scale by raising `WORKER_CONCURRENCY` (worker threads).
+  Each concurrent file holds photos in memory and one outstanding vLLM request,
+  so concurrency is bounded by RAM and by vLLM's GPU headroom, not by Chromium.
 - **Task rules guide, not force** — there is no deterministic "force fail" rule
   (only GPS/date are hard checks). Could be added if required.
 - **Persian PDF text** depends on the source's text layer; NFKC fixes presentation
