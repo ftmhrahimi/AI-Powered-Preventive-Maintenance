@@ -2025,9 +2025,6 @@ async function fetchPhotosForResults(results, taskId) {
   if (!Object.keys(itemPhotoMap).length) return null;
   return results.map(r => ({ ...r, photos: itemPhotoMap[r.row] || r.photos || [] }));
 }
-const EXTRACT_PHOTOS  = window.APP_CONFIG.EXTRACT_PHOTOS;
-const JOB_API_BASE    = window.APP_CONFIG.JOB_API_BASE;    
-
 // const SITES_DATA = [
 //   {siteId:'225-Shahrekord-BSC',lat:32.31735333333334,lon:50.861},
 //   {siteId:'SITE002',lat:79,lon:80},

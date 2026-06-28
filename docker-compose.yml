@@ -28,13 +28,10 @@ services:
     container_name: pm-frontend
     env_file: .env
     environment:
+      # Only these three are rendered into config.js (see frontend/config.js).
       BACKEND_URL: ${PUBLIC_BACKEND_URL:-}              # empty = same-origin via nginx proxy
-      FRONTEND_LLM_MODEL: ${FRONTEND_LLM_MODEL:-./}
       FRONTEND_MINIO_BASE: ${FRONTEND_MINIO_BASE:-/pm-photos}
-      FRONTEND_EXTRACT_PHOTOS: ${FRONTEND_EXTRACT_PHOTOS:-false}
       PHOTO_MAX_INDEX: ${PHOTO_MAX_INDEX:-50}
-      GPS_RADIUS_METERS: ${GPS_RADIUS_METERS:-300}
-      DATE_TOLERANCE_DAYS: ${DATE_TOLERANCE_DAYS:-3}
     ports:
       - "${FRONTEND_PORT:-8080}:80"
     depends_on:
