@@ -3259,164 +3259,63 @@ async function deleteSite(siteId) {
    CSV IMPORT — TASK RULES
 ══════════════════════════════════════════════ */
 async function importRulesCSV(input) {
+  // The CSV is parsed and bulk-inserted by the backend (/api/admin/import-rules-csv);
+  // the browser just uploads the file's text.
   const file = input.files[0];
   if (!file) return;
   const status = document.getElementById('rulesCSVStatus');
   status.style.display = '';
   status.style.color = 'var(--gray)';
-  status.textContent = 'Parsing CSV…';
-
-    const text = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = e => resolve(e.target.result);
-      reader.onerror = reject;
-      reader.readAsText(file, 'UTF-8');
+  status.textContent = 'Uploading CSV…';
+  try {
+    const csv = await file.text();
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/import-rules-csv', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ admin_username: currentUser.username, csv })
     });
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  if (lines.length < 2) { status.style.color='var(--red)'; status.textContent = '✗ CSV is empty or has no data rows.'; return; }
-
-  // Parse header to find column positions (case-insensitive)
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-  const col = h => headers.indexOf(h);
-  const iCat  = col('taskcategory'),  iSub = col('tasksubcategory'),
-        iNum  = col('tasknumber'),    iExp = col('expected'),
-        iChk  = col('checkpoints'),   iFail = col('fail_if');
-
-  if ([iCat, iSub, iNum].some(i => i === -1)) {
+    const data = await res.json();
+    if (!res.ok) { status.style.color='var(--red)'; status.textContent = '✗ ' + (data.error || 'Import failed'); return; }
+    status.style.color = data.fail ? 'var(--red)' : 'var(--green)';
+    status.textContent = `✓ ${data.ok} rules imported${data.fail ? `, ✗ ${data.fail} failed` : ''}.${(data.errors && data.errors.length) ? ' Skipped: ' + data.errors.join('; ') : ''}`;
+    loadTaskRules();
+  } catch (e) {
     status.style.color = 'var(--red)';
-    status.textContent = '✗ Missing required columns: taskCategory, taskSubcategory, taskNumber';
+    status.textContent = '✗ ' + e.message;
+  } finally {
     input.value = '';
-    return;
   }
-
-  const rows = [];
-  const errors = [];
-  for (let i = 1; i < lines.length; i++) {
-    // Handle quoted fields with commas inside
-    const cols = parseCSVLine(lines[i]);
-    const cat = cols[iCat]?.trim();
-    const sub = cols[iSub]?.trim();
-    const num = cols[iNum]?.trim();
-    if (!cat || !sub || !num) { errors.push(`Row ${i+1}: missing category, subcategory or task number`); continue; }
-    rows.push({
-      taskCategory:    cat,
-      taskSubcategory: sub,
-      taskNumber:      num,
-      expected:        iExp  !== -1 ? (cols[iExp]||'').trim()  : '',
-      checkpoints:     iChk  !== -1 ? (cols[iChk]||'').split('|').map(s=>s.trim()).filter(Boolean) : [],
-      fail_if:         iFail !== -1 ? (cols[iFail]||'').split('|').map(s=>s.trim()).filter(Boolean) : []
-    });
-  }
-
-  if (!rows.length) {
-    status.style.color = 'var(--red)';
-    status.textContent = '✗ No valid rows found. ' + errors.join('; ');
-    input.value = '';
-    return;
-  }
-
-  status.textContent = `Uploading ${rows.length} rules…`;
-  let ok = 0, fail = 0;
-  for (const row of rows) {
-    try {
-      const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/task-rules', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ admin_username: currentUser.username, ...row })
-      });
-      const data = await res.json();
-      data.success ? ok++ : fail++;
-    } catch { fail++; }
-  }
-
-  input.value = '';
-  status.style.color = fail === 0 ? 'var(--green)' : 'var(--red)';
-  status.textContent = `✓ ${ok} rules imported${fail ? `, ✗ ${fail} failed` : ''}.${errors.length ? ' Skipped: ' + errors.join('; ') : ''}`;
-  loadTaskRules();
 }
 
 /* ══════════════════════════════════════════════
    CSV IMPORT — SITES
 ══════════════════════════════════════════════ */
 async function importSitesCSV(input) {
+  // Parsed and bulk-inserted by the backend (/api/admin/import-sites-csv).
   const file = input.files[0];
   if (!file) return;
   const status = document.getElementById('sitesCSVStatus');
   status.style.display = '';
   status.style.color = 'var(--gray)';
-  status.textContent = 'Parsing CSV…';
-
-    const text = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = e => resolve(e.target.result);
-      reader.onerror = reject;
-      reader.readAsText(file, 'UTF-8');
+  status.textContent = 'Uploading CSV…';
+  try {
+    const csv = await file.text();
+    const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/import-sites-csv', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ admin_username: currentUser.username, csv })
     });
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  if (lines.length < 2) { status.style.color='var(--red)'; status.textContent = '✗ CSV is empty or has no data rows.'; return; }
-
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-  const iId  = headers.indexOf('siteid');
-  const iLat = headers.indexOf('lat');
-  const iLon = headers.indexOf('lon');
-
-  if ([iId, iLat, iLon].some(i => i === -1)) {
+    const data = await res.json();
+    if (!res.ok) { status.style.color='var(--red)'; status.textContent = '✗ ' + (data.error || 'Import failed'); return; }
+    status.style.color = data.fail ? 'var(--red)' : 'var(--green)';
+    status.textContent = `✓ ${data.ok} sites imported${data.fail ? `, ✗ ${data.fail} failed` : ''}.${(data.errors && data.errors.length) ? ' Skipped: ' + data.errors.join('; ') : ''}`;
+    loadSites();
+  } catch (e) {
     status.style.color = 'var(--red)';
-    status.textContent = '✗ Missing required columns: siteId, lat, lon';
+    status.textContent = '✗ ' + e.message;
+  } finally {
     input.value = '';
-    return;
   }
-
-  const rows = [];
-  const errors = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i]);
-    const siteId = cols[iId]?.trim();
-    const lat    = parseFloat(cols[iLat]);
-    const lon    = parseFloat(cols[iLon]);
-    if (!siteId || isNaN(lat) || isNaN(lon)) { errors.push(`Row ${i+1}: invalid data`); continue; }
-    rows.push({ siteId, lat, lon });
-  }
-
-  if (!rows.length) {
-    status.style.color = 'var(--red)';
-    status.textContent = '✗ No valid rows found. ' + errors.join('; ');
-    input.value = '';
-    return;
-  }
-
-  status.textContent = `Uploading ${rows.length} sites…`;
-  let ok = 0, fail = 0;
-  for (const row of rows) {
-    try {
-      const res = await fetch(window.APP_CONFIG.BACKEND_URL + '/api/admin/sites', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ admin_username: currentUser.username, ...row })
-      });
-      const data = await res.json();
-      data.success ? ok++ : fail++;
-    } catch { fail++; }
-  }
-
-  input.value = '';
-  status.style.color = fail === 0 ? 'var(--green)' : 'var(--red)';
-  status.textContent = `✓ ${ok} sites imported${fail ? `, ✗ ${fail} failed` : ''}.${errors.length ? ' Skipped: ' + errors.join('; ') : ''}`;
-  loadSites();
-}
-
-/* ── CSV line parser (handles quoted fields containing commas) ── */
-function parseCSVLine(line) {
-  const result = [];
-  let cur = '', inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') { inQuotes = !inQuotes; }
-    else if (ch === ',' && !inQuotes) { result.push(cur); cur = ''; }
-    else { cur += ch; }
-  }
-  result.push(cur);
-  return result;
 }
 </script>
 

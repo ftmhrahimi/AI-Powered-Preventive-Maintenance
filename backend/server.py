@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify, send_file
 import tempfile
 import os
 import shutil
+import csv
+import io
 import requests
 import logging
 import uuid
@@ -767,6 +769,51 @@ def save_task_rule():
     )
     return jsonify({"success": ok})
 
+@app.route('/api/admin/import-rules-csv', methods=['POST'])
+def import_rules_csv():
+    """Bulk-import task rules from a CSV. The whole CSV is parsed server-side
+    (was previously done in the browser). Body JSON: {admin_username, csv}.
+    Required columns: taskCategory, taskSubcategory, taskNumber.
+    Optional: expected, checkpoints, fail_if (the last two are '|'-separated)."""
+    data = request.get_json() or {}
+    admin_username = data.get('admin_username')
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
+    rows = list(csv.reader(io.StringIO(data.get('csv', ''))))
+    rows = [r for r in rows if any((c or '').strip() for c in r)]
+    if len(rows) < 2:
+        return jsonify({"error": "CSV is empty or has no data rows."}), 400
+    headers = [h.strip().lower() for h in rows[0]]
+    def col(name): return headers.index(name) if name in headers else -1
+    iCat, iSub, iNum = col('taskcategory'), col('tasksubcategory'), col('tasknumber')
+    iExp, iChk, iFail = col('expected'), col('checkpoints'), col('fail_if')
+    if -1 in (iCat, iSub, iNum):
+        return jsonify({"error": "Missing required columns: taskCategory, taskSubcategory, taskNumber"}), 400
+
+    def cell(r, i):
+        return (r[i].strip() if 0 <= i < len(r) and r[i] is not None else '')
+    def pipe(r, i):
+        return [s.strip() for s in cell(r, i).split('|') if s.strip()] if i != -1 else []
+
+    ok = fail = 0
+    errors = []
+    for n, r in enumerate(rows[1:], start=2):
+        cat, sub, num = cell(r, iCat), cell(r, iSub), cell(r, iNum)
+        if not cat or not sub or not num:
+            errors.append(f"Row {n}: missing category, subcategory or task number")
+            continue
+        try:
+            if upsert_task_rule(cat, sub, num, cell(r, iExp), pipe(r, iChk), pipe(r, iFail)):
+                ok += 1
+            else:
+                fail += 1
+        except Exception:
+            fail += 1
+    log_event("ADMIN_IMPORT_RULES_CSV", username=admin_username,
+              detail=f"ok={ok} fail={fail}")
+    return jsonify({"ok": ok, "fail": fail, "errors": errors})
+
+
 @app.route('/api/admin/task-rules', methods=['DELETE'])
 def remove_task_rule():
     admin_username = request.args.get('admin_username')
@@ -805,6 +852,51 @@ def save_site():
         data.get('lon')
     )
     return jsonify({"success": ok})
+
+@app.route('/api/admin/import-sites-csv', methods=['POST'])
+def import_sites_csv():
+    """Bulk-import sites from a CSV, parsed server-side. Body JSON:
+    {admin_username, csv}. Required columns: siteId, lat, lon."""
+    data = request.get_json() or {}
+    admin_username = data.get('admin_username')
+    if not is_admin_user(admin_username):
+        return jsonify({"error": "Admin access required"}), 403
+    rows = list(csv.reader(io.StringIO(data.get('csv', ''))))
+    rows = [r for r in rows if any((c or '').strip() for c in r)]
+    if len(rows) < 2:
+        return jsonify({"error": "CSV is empty or has no data rows."}), 400
+    headers = [h.strip().lower() for h in rows[0]]
+    def col(name): return headers.index(name) if name in headers else -1
+    iId, iLat, iLon = col('siteid'), col('lat'), col('lon')
+    if -1 in (iId, iLat, iLon):
+        return jsonify({"error": "Missing required columns: siteId, lat, lon"}), 400
+
+    def cell(r, i):
+        return (r[i].strip() if 0 <= i < len(r) and r[i] is not None else '')
+
+    ok = fail = 0
+    errors = []
+    for n, r in enumerate(rows[1:], start=2):
+        site_id = cell(r, iId)
+        try:
+            lat, lon = float(cell(r, iLat)), float(cell(r, iLon))
+        except ValueError:
+            errors.append(f"Row {n}: invalid data")
+            continue
+        if not site_id:
+            errors.append(f"Row {n}: invalid data")
+            continue
+        try:
+            if upsert_site(site_id, lat, lon):
+                ok += 1
+            else:
+                fail += 1
+        except Exception:
+            fail += 1
+    log_event("ADMIN_IMPORT_SITES_CSV", username=admin_username,
+              detail=f"ok={ok} fail={fail}")
+    return jsonify({"ok": ok, "fail": fail, "errors": errors})
+
 
 @app.route('/api/admin/sites', methods=['DELETE'])
 def remove_site():
