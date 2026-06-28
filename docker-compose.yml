@@ -19,6 +19,15 @@ services:
       minio-init:
         condition: service_completed_successfully
     restart: unless-stopped
+    # Resource caps so no one container can starve the host (and vLLM). Tune to
+    # your server with `free -h` / `nproc`. Honored by `docker compose up`.
+    deploy:
+      resources:
+        limits:
+          cpus: "${BACKEND_CPUS:-2.0}"
+          memory: ${BACKEND_MEM:-3g}
+        reservations:
+          memory: 512m
     networks:
       - pm-net
 
@@ -37,6 +46,11 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
     networks:
       - pm-net
 
@@ -73,6 +87,15 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    # Each concurrent file holds page/photo images in memory; size this with
+    # WORKER_CONCURRENCY. Tune to your server.
+    deploy:
+      resources:
+        limits:
+          cpus: "${WORKER_CPUS:-2.0}"
+          memory: ${WORKER_MEM:-3g}
+        reservations:
+          memory: 512m
     networks:
       - pm-net
 
@@ -94,6 +117,11 @@ services:
       retries: 5
       start_period: 15s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${MINIO_CPUS:-1.0}"
+          memory: ${MINIO_MEM:-1g}
     networks:
       - pm-net
 
