@@ -2596,11 +2596,22 @@ async function fetchImageAsBase64(url){
 }
 
 /* ══ MODAL ══ */
-function openModal(idx) {
+async function openModal(idx) {
   openModalJobIdx = idx;
   const job = jobs[idx];
+  // Open immediately with what we have, then enrich with photo thumbnails from
+  // MinIO (same as the saved-report views). The results from a server run carry
+  // no image bytes — photos live in MinIO — so without this the Validator-tab
+  // report shows no thumbnails until the report is saved and reopened.
   renderModalContent(job.parsedHeader, job.parsedItems, job.results, job.taskId, 'modalTitle','modalVerdict','modalStats','modalHeaderInfo','modalBody');
   document.getElementById('modalOverlay').classList.add('open');
+  const taskId = job.parsedHeader?.taskId || job.taskId;
+  const enriched = await fetchPhotosForResults(job.results, taskId);
+  // Only re-render if this same report is still open (user didn't close/switch).
+  if (enriched && openModalJobIdx === idx &&
+      document.getElementById('modalOverlay').classList.contains('open')) {
+    renderModalContent(job.parsedHeader, job.parsedItems, enriched, job.taskId, 'modalTitle','modalVerdict','modalStats','modalHeaderInfo','modalBody');
+  }
 }
 
 function renderModalContent(h, parsedItems, results, titleText, titleId, verdictId, statsId, headerInfoId, bodyId) {
