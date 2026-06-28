@@ -92,9 +92,8 @@ last saw.
 | A6‑1 | Run All → Stop **one** file | Only that file stopped; the others keep running |
 | A6‑2 | Run All → Stop one → **Run** that one again | It re‑runs; others unaffected; no re‑upload |
 | A6‑3 | Run All → Stop one → **Stop All** | Everything stops cleanly; Run All returns |
-| A6‑4 | Run **one** → while it runs, **Run All** | Remaining files start; the already‑running one isn't duplicated/restarted |
-| A6‑5 | Run All → let 1 finish → **Stop All** | The finished file stays **Done** (not reverted); the rest are Stopped |
-| A6‑6 | Double‑click **Run All** quickly | No duplicate runs/rows |
+| A6‑4 | Run All → let 1 finish → **Stop All** | The finished file stays **Done** (not reverted); the rest are Stopped |
+| A6‑5 | Double‑click **Run All** quickly | No duplicate runs/rows |
 
 ## A7. Server‑side processing (from the user's side)
 
