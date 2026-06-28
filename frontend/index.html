@@ -955,16 +955,6 @@ async function idbDelete(key) {
   });
 }
 
-async function idbClear() {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).clear();
-    tx.oncomplete = () => resolve();
-    tx.onerror    = e => reject(e.target.error);
-  });
-}
-
 // Convert File object to storable object
 async function fileToStorable(file) {
   return new Promise((resolve, reject) => {
@@ -987,38 +977,11 @@ function storableToFile(stored) {
 }
 
 /* ══════════════════════════════════════════════
-   AUTH / STORAGE
+   SESSION STATE
 ══════════════════════════════════════════════ */
-const STORAGE_PREFIX = 'pm_auth_';
-const REPORTS_PREFIX = 'pm_reports_';
 let currentUser = null;
 let openModalJobIdx = null;
 let activeAuditContext = {};
-/* Simple hash — pure JS, works on HTTP (no crypto.subtle needed) */
-function hashPassword(password) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < password.length; i++) {
-    h ^= password.charCodeAt(i);
-    h = (h * 0x01000193) >>> 0;
-  }
-  // Second pass with salt for slightly more resistance
-  let h2 = 0x9747b28c;
-  for (let i = password.length - 1; i >= 0; i--) {
-    h2 ^= (password.charCodeAt(i) + i);
-    h2 = (h2 * 0x5bd1e995) >>> 0;
-  }
-  return (h >>> 0).toString(16).padStart(8,'0') + (h2 >>> 0).toString(16).padStart(8,'0') +
-    (h ^ h2).toString(16).padStart(8,'0') + ((h + h2) >>> 0).toString(16).padStart(8,'0');
-}
-
-function getUsers() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_PREFIX + 'users') || '{}'); } catch { return {}; }
-}
-
-function saveUsers(users) {
-  localStorage.setItem(STORAGE_PREFIX + 'users', JSON.stringify(users));
-}
-
 function getSessionUser() {
   try { return JSON.parse(localStorage.getItem('pm_session') || 'null'); } catch { return null; }
 }
@@ -1185,15 +1148,6 @@ async function deleteAllUserFiles(username) {
   } catch (err) {
     console.error('Failed to delete all user files:', err);
   }
-}
-
-/* localStorage fallbacks (used when window.storage unavailable) */
-function _getUserReportsLS(username) {
-  try { return JSON.parse(localStorage.getItem(REPORTS_PREFIX + username) || '[]'); } catch { return []; }
-}
-function _saveUserReportsLS(username, reports) {
-  try { localStorage.setItem(REPORTS_PREFIX + username, JSON.stringify(reports)); }
-  catch (e) { showToast('⚠ Storage quota exceeded. Old reports may not be saved.'); }
 }
 
 /* ── AUTH UI ── */
@@ -1458,27 +1412,12 @@ if (isAdmin) {
   } catch(e) { /* no active run, or backend unreachable — ignore */ }
 }
 
-async function _migrateLocalStorageReports(username) {
-  if (!window.storage) return;
-  const migKey = 'pm_migrated_' + username;
-  if (localStorage.getItem(migKey)) return;  // already done
-  const lsReports = _getUserReportsLS(username);
-  if (!lsReports.length) { localStorage.setItem(migKey, '1'); return; }
-  try {
-    await saveUserReports(username, lsReports);
-    localStorage.setItem(migKey, '1');
-    showToast('✓ Reports migrated to persistent storage');
-  } catch {}
-}
-
 function doSignOut() {
 
   clearSession();
   sessionStorage.removeItem('lastFolderLabel');
   sessionStorage.removeItem('lastFileNames');
-  // Keep IndexedDB files — they restore on next sign-in
-  // If you want to clear on sign-out instead, uncomment:
-  // idbClear().catch(()=>{});
+  // Keep IndexedDB files — they restore on next sign-in.
   currentUser = null;
   jobs = [];
   document.getElementById('folderInput').value = '';
