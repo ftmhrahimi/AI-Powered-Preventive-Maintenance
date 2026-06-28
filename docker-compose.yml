@@ -57,6 +57,9 @@ services:
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
       # How many files process at once (each in its own thread).
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      # Worker calls the backend /extract to pull photos + date/GPS metadata into
+      # MinIO before validating. MUST stay true unless photos are pre-loaded.
+      EXTRACT_PHOTOS: ${EXTRACT_PHOTOS:-true}
       CHECKBOX_DETECT: ${CHECKBOX_DETECT:-true}
       LLM_SERVER_URL: ${LLM_SERVER_URL:-}
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-./}
