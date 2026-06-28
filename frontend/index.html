@@ -1569,8 +1569,8 @@ let dbSortDir = -1;
 async function renderHistory() {
   if (!currentUser) return;
   const reports = await getUserReports(currentUser.username);
-  populateFilterDropdowns(reports);
-  updateKpis(reports);
+  fillFilterDropdowns(reports, ['fCategory','fSubcategory','fFme']);
+  renderKpis(getFilteredReports(reports), HIST_KPI_IDS);
   await applyFilters();
 }
 
@@ -1603,8 +1603,8 @@ async function renderAdmin() {
     const res = await fetch(window.APP_CONFIG.BACKEND_URL+`/api/admin/reports?admin_username=${encodeURIComponent(currentUser.username)}`);
     if (!res.ok) throw new Error('Admin report access denied');
     adminReportsCache = await res.json();
-    populateAdminFilterDropdowns(adminReportsCache);
-    updateAdminKpis(adminReportsCache);
+    fillFilterDropdowns(adminReportsCache, ['adminCategory','adminSubcategory','adminFme']);
+    renderKpis(getAdminDashboardFilteredReports(adminReportsCache), ADMIN_KPI_IDS);
     applyAdminDashboardFilters();
   } catch (err) {
     console.error('Admin fetch failed:', err);
@@ -1613,31 +1613,32 @@ async function renderAdmin() {
   }
 }
 
-function populateAdminFilterDropdowns(reports) {
-  const cats    = [...new Set(reports.map(r => r.taskCategory).filter(Boolean))].sort();
-  const subcats = [...new Set(reports.map(r => r.taskSubcategory).filter(Boolean))].sort();
-  const fmes    = [...new Set(reports.map(r => r.fmeName).filter(Boolean))].sort();
+// ── Shared dashboard helpers (used by both the admin and history views) ──
+const ADMIN_KPI_IDS = {total:'adminKpiTotal', validated:'adminKpiValidated',
+  disputed:'adminKpiDisputed', avg:'adminKpiAvgConf', sites:'adminKpiSites'};
+const HIST_KPI_IDS  = {total:'kpiTotal', validated:'kpiValidated',
+  disputed:'kpiDisputed', avg:'kpiAvgConf', sites:'kpiSites'};
+
+function fillFilterDropdowns(reports, [catId, subId, fmeId]) {
+  const uniq = k => [...new Set(reports.map(r => r[k]).filter(Boolean))].sort();
   const fill = (id, vals) => {
     const sel = document.getElementById(id); if (!sel) return;
     const cur = sel.value;
     sel.innerHTML = '<option value="">All</option>' + vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
     sel.value = cur;
   };
-  fill('adminCategory', cats); fill('adminSubcategory', subcats); fill('adminFme', fmes);
+  fill(catId, uniq('taskCategory')); fill(subId, uniq('taskSubcategory')); fill(fmeId, uniq('fmeName'));
 }
 
-function updateAdminKpis(reports) {
-  const filtered  = getAdminDashboardFilteredReports(reports);
+function renderKpis(filtered, ids) {
   const validated = filtered.filter(r => !(r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
   const disputed  = filtered.filter(r =>  (r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
   const pcts = filtered.map(r => r.confirmation ?? r.acceptanceRate).filter(v => v != null);
   const avg  = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
   const sites = new Set(filtered.map(r => r.siteId).filter(Boolean)).size;
-  document.getElementById('adminKpiTotal').textContent     = filtered.length;
-  document.getElementById('adminKpiValidated').textContent = validated;
-  document.getElementById('adminKpiDisputed').textContent  = disputed;
-  document.getElementById('adminKpiAvgConf').textContent   = avg != null ? avg + '%' : '—';
-  document.getElementById('adminKpiSites').textContent     = sites || '—';
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  set(ids.total, filtered.length); set(ids.validated, validated); set(ids.disputed, disputed);
+  set(ids.avg, avg != null ? avg + '%' : '—'); set(ids.sites, sites || '—');
 }
 
 function getAdminDashboardFilteredReports(reports = adminReportsCache) {
@@ -1672,7 +1673,7 @@ function getAdminDashboardFilteredReports(reports = adminReportsCache) {
 
 function applyAdminDashboardFilters() {
   if (!currentUser || !currentUser.isAdmin) return;
-  updateAdminKpis(adminReportsCache);
+  renderKpis(getAdminDashboardFilteredReports(adminReportsCache), ADMIN_KPI_IDS);
   adminFilteredReports = getAdminDashboardFilteredReports();
   adminFilteredReports.sort((a, b) => {
         let va = adminSortKey === 'owner' ? (a.ownerName || a.owner || '') : (a[adminSortKey] ?? '');
@@ -1806,33 +1807,6 @@ async function loadAuditLog() {
     console.error('Audit fetch failed:', err);
   }
 }
-function populateFilterDropdowns(reports) {
-  const cats    = [...new Set(reports.map(r => r.taskCategory).filter(Boolean))].sort();
-  const subcats = [...new Set(reports.map(r => r.taskSubcategory).filter(Boolean))].sort();
-  const fmes    = [...new Set(reports.map(r => r.fmeName).filter(Boolean))].sort();
-  const fill = (id, vals) => {
-    const sel = document.getElementById(id); if (!sel) return;
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">All</option>' + vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
-    sel.value = cur;
-  };
-  fill('fCategory', cats); fill('fSubcategory', subcats); fill('fFme', fmes);
-}
-
-function updateKpis(reports) {
-  const filtered  = getFilteredReports(reports);
-  const validated = filtered.filter(r => !(r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
-  const disputed  = filtered.filter(r =>  (r.results||[]).some(x => x.verdict === 'DISPUTED')).length;
-  const pcts = filtered.map(r => r.confirmation ?? r.acceptanceRate).filter(v => v != null);
-  const avg  = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length) : null;
-  const sites = new Set(filtered.map(r => r.siteId).filter(Boolean)).size;
-  document.getElementById('kpiTotal').textContent     = filtered.length;
-  document.getElementById('kpiValidated').textContent = validated;
-  document.getElementById('kpiDisputed').textContent  = disputed;
-  document.getElementById('kpiAvgConf').textContent   = avg != null ? avg + '%' : '—';
-  document.getElementById('kpiSites').textContent     = sites || '—';
-}
-
 function getFilteredReports(reports) {
   const g = id => (document.getElementById(id)?.value || '');
   const fTaskId   = g('fTaskId').toLowerCase();
@@ -1863,7 +1837,7 @@ function getFilteredReports(reports) {
 async function applyFilters() {
   if (!currentUser) return;
   const reports  = await getUserReports(currentUser.username);
-  updateKpis(reports);
+  renderKpis(getFilteredReports(reports), HIST_KPI_IDS);
   const filtered = getFilteredReports(reports);
   filtered.sort((a, b) => {
     let va = a[dbSortKey] ?? '', vb = b[dbSortKey] ?? '';
