@@ -59,9 +59,6 @@ AUDIT_DB = AUDIT_DB_PATH
 os.makedirs(os.path.dirname(os.path.abspath(AUDIT_DB)), exist_ok=True)
 AUDIT_LOCK = threading.Lock()
 
-STOP_ALL_FLAG = False
-STOP_ALL_LOCK = threading.Lock()
-
 # Serializes claiming of server-side run jobs by the headless worker.
 SERVER_RUN_CLAIM_LOCK = threading.Lock()
 # Shared secret for the internal worker endpoints (set in .env for the worker
@@ -149,19 +146,15 @@ def log_event(event_type, detail=None, description=None, username=None,
             conn.commit()
 
 def run_job(job_id, tmp_path):
-    global STOP_ALL_FLAG
     with JOB_REGISTRY_LOCK:
         job_meta = dict(JOB_REGISTRY.get(job_id, {}))
     username = job_meta.get("username")
     filename = job_meta.get("filename", "")
 
-    with STOP_ALL_LOCK:
-        stop_all_requested = STOP_ALL_FLAG
-
     with JOB_REGISTRY_LOCK:
         already_stopped = JOB_REGISTRY.get(job_id, {}).get("status") == "stopped"
 
-    if stop_all_requested or already_stopped:
+    if already_stopped:
         with JOB_REGISTRY_LOCK:
             if job_id in JOB_REGISTRY:
                 JOB_REGISTRY[job_id]["status"] = "stopped"
@@ -179,9 +172,6 @@ def run_job(job_id, tmp_path):
               status="running")
 
     def stop_check():
-        with STOP_ALL_LOCK:
-            if STOP_ALL_FLAG:
-                return True
         with JOB_REGISTRY_LOCK:
             return JOB_REGISTRY.get(job_id, {}).get("status") == "stopped"
 
@@ -609,22 +599,14 @@ def delete_pdf():
 def stop_all_endpoint():
     if request.method == 'OPTIONS':
         return '', 204
-    global STOP_ALL_FLAG
-    with STOP_ALL_LOCK:
-        STOP_ALL_FLAG = True
-
+    # Stop only the jobs that exist right now. (Previously this set a global flag
+    # for 10 s, which also killed any NEW run the user started moments after
+    # Stop All. Marking current jobs stopped is enough — their stop_check picks
+    # it up — and a freshly-submitted job is unaffected.)
     with JOB_REGISTRY_LOCK:
         for job_id, job in JOB_REGISTRY.items():
             if job['status'] in ('running', 'pending'):
                 job['status'] = 'stopped'
-
-    def reset_stop_flag():
-        import time as _time
-        _time.sleep(10)
-        global STOP_ALL_FLAG
-        with STOP_ALL_LOCK:
-            STOP_ALL_FLAG = False
-    threading.Thread(target=reset_stop_flag, daemon=True).start()
 
     log_event("STOP_ALL", description="All running jobs stopped by user",
               ip_address=request.remote_addr, status="info")
