@@ -204,7 +204,7 @@ last saw.
 
 | ID | Steps | Expected |
 |----|-------|----------|
-| B1‑1 | `sudo docker compose ps` | `pm-backend`, `pm-frontend`, `pm-worker`, `pm-minio` all running; `pm-minio-init` exited 0 |
+| B1‑1 | `sudo docker compose ps` | `pm-backend`, `pm-frontend`, `pm-worker-py`, `pm-minio` all running; `pm-minio-init` exited 0 |
 | B1‑2 | `curl http://localhost:9700/health` | Returns JSON incl. `{"status":"ok", ...}` |
 | B1‑3 | Cold start: `sudo docker compose up -d --build` | Whole stack comes up; app reachable |
 
@@ -228,9 +228,9 @@ last saw.
 
 | ID | Steps | Expected |
 |----|-------|----------|
-| B4‑1 | `sudo docker compose logs worker \| grep -E "concurrency\|worker\["` | Shows `concurrency=3` and `worker[0/1/2] starting` |
-| B4‑2 | Trigger a Run All (in the browser), then watch `sudo docker compose logs -f worker` | Multiple `processing server-run` lines overlap in time (real parallelism) |
-| B4‑3 | Restart the worker mid‑run: `sudo docker compose restart worker` | In‑flight runs are re‑queued and finish; no file is stuck forever |
+| B4‑1 | `sudo docker compose logs worker-py \| grep -E "concurrency\|worker\["` | Shows `concurrency=3` and `worker[0/1/2] starting` |
+| B4‑2 | Trigger a Run All (in the browser), then watch `sudo docker compose logs -f worker-py` | Multiple files' progress lines overlap in time (real parallelism) |
+| B4‑3 | Restart the worker mid‑run: `sudo docker compose restart worker-py` | In‑flight runs are re‑queued and finish; no file is stuck forever |
 
 ## B5. API security & access control (curl)
 
