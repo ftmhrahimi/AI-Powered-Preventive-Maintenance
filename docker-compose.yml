@@ -1,0 +1,162 @@
+name: pm-portal
+
+services:
+  backend:
+    build: ./backend
+    image: pm-portal-backend:latest
+    container_name: pm-backend
+    env_file: .env
+    environment:
+      # MinIO is reached over the internal Docker network, not via host IP.
+      MINIO_ENDPOINT: minio:9000
+    ports:
+      - "${BACKEND_PORT:-9700}:9700"
+    volumes:
+      - backend-data:/app/data        # SQLite databases (users, reports, audit)
+      - backend-logs:/app/logs        # application + access logs
+      - backend-storage:/app/storage  # uploaded PDF files
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    # Resource caps so no one container can starve the host (and vLLM). Tune to
+    # your server with `free -h` / `nproc`. Honored by `docker compose up`.
+    deploy:
+      resources:
+        limits:
+          cpus: "${BACKEND_CPUS:-2.0}"
+          memory: ${BACKEND_MEM:-3g}
+        reservations:
+          memory: 512m
+    networks:
+      - pm-net
+
+  frontend:
+    build: ./frontend
+    image: pm-portal-frontend:latest
+    container_name: pm-frontend
+    env_file: .env
+    environment:
+      # Only these three are rendered into config.js (see frontend/config.js).
+      BACKEND_URL: ${PUBLIC_BACKEND_URL:-}              # empty = same-origin via nginx proxy
+      FRONTEND_MINIO_BASE: ${FRONTEND_MINIO_BASE:-/pm-photos}
+      PHOTO_MAX_INDEX: ${PHOTO_MAX_INDEX:-50}
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    networks:
+      - pm-net
+
+  # Processing engine: a Chromium-free Python worker. It polls the backend queue,
+  # extracts checklist items, detects each row's OK/Not-OK checkbox, validates the
+  # photos against the LLM, and writes results back — the same pipeline the SPA
+  # used to run, now entirely server-side with no browser (small image, low RAM).
+  # This is the default and only worker.
+  worker-py:
+    build: ./worker-py
+    image: pm-portal-worker-py:latest
+    container_name: pm-worker-py
+    env_file: .env
+    environment:
+      WORKER_BACKEND_URL: http://backend:9700
+      MINIO_BASE: http://minio:9000/${MINIO_BUCKET:-pm-photos}
+      WORKER_TOKEN: ${WORKER_TOKEN:-}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
+      # How many files process at once (each in its own thread).
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      # Worker calls the backend /extract to pull photos + date/GPS metadata into
+      # MinIO before validating. MUST stay true unless photos are pre-loaded.
+      EXTRACT_PHOTOS: ${EXTRACT_PHOTOS:-true}
+      CHECKBOX_DETECT: ${CHECKBOX_DETECT:-true}
+      LLM_SERVER_URL: ${LLM_SERVER_URL:-}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-./}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
+      # Validation photos are downscaled to this width (browser parity; avoids
+      # vLLM 400s on multi-photo items). Set to 0 to send full-size.
+      LLM_IMAGE_MAX_W: ${LLM_IMAGE_MAX_W:-1000}
+      GPS_RADIUS_METERS: ${GPS_RADIUS_METERS:-300}
+      DATE_TOLERANCE_DAYS: ${DATE_TOLERANCE_DAYS:-3}
+      PHOTO_MAX_INDEX: ${PHOTO_MAX_INDEX:-50}
+    depends_on:
+      - backend
+    restart: unless-stopped
+    # Each concurrent file holds page/photo images in memory; size this with
+    # WORKER_CONCURRENCY. Tune to your server.
+    deploy:
+      resources:
+        limits:
+          cpus: "${WORKER_CPUS:-2.0}"
+          memory: ${WORKER_MEM:-3g}
+        reservations:
+          memory: 512m
+    networks:
+      - pm-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: pm-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"  # admin web console (optional)
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${MINIO_CPUS:-1.0}"
+          memory: ${MINIO_MEM:-1g}
+    networks:
+      - pm-net
+
+  # One-shot init container: creates the bucket and sets the anonymous read
+  # policy every time the stack starts. Runs after MinIO is healthy and exits.
+  # Using `restart: no` so it doesn't loop; `depends_on: minio-init` in the
+  # backend service guarantees the bucket + policy exist before Flask starts.
+  minio-init:
+    image: minio/minio:latest
+    container_name: pm-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-pm-photos}
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $$MINIO_ACCESS_KEY $$MINIO_SECRET_KEY &&
+        mc mb --ignore-existing local/$$MINIO_BUCKET &&
+        mc anonymous set download local/$$MINIO_BUCKET &&
+        echo 'MinIO bucket policy set: anonymous download on' $$MINIO_BUCKET
+      "
+    restart: "no"
+    networks:
+      - pm-net
+
+volumes:
+  backend-data:
+  backend-logs:
+  backend-storage:
+  minio-data:
+
+networks:
+  pm-net:
+    driver: bridge

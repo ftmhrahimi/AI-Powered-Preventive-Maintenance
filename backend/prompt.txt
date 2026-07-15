@@ -1,0 +1,14 @@
+Extract the following fields from the image.
+
+Return ONLY a valid JSON object with this schema:
+
+{
+  "date_time": "...",
+  "lat": "...",
+  "lng": "...",
+  "taskID": "..."
+}
+
+Rules:
+- If a field cannot be detected, return "unknown".
+- Return only JSON.
