@@ -88,7 +88,7 @@ def validation_prompt(item, photo_count, report_date, site_lat, site_lon,
     else:
         rule_text = 'No additional rules provided.'
     gps = f"{site_lat}, {site_lon}" if site_lat else 'not registered'
-    return f"""You are an expert AI validator for Irancell PM (Preventive Maintenance) reports.
+    return f"""You are an expert AI validator for telecom operator PM (Preventive Maintenance) reports.
 TASK: Validate ONE checklist item using ONLY its dedicated site photos.
 
 REPORT:

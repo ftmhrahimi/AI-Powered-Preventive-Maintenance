@@ -11,7 +11,7 @@ import requests
 
 from . import prompts
 
-LLM_URL   = os.getenv("LLM_SERVER_URL", "http://10.130.154.133:8000/v1/chat/completions")
+LLM_URL   = os.getenv("LLM_SERVER_URL", "http://localhost:8000/v1/chat/completions")
 LLM_MODEL = os.getenv("LLM_MODEL_NAME", "./")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "3"))

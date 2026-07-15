@@ -10,7 +10,7 @@ from PIL import Image
 
 from . import geo, llm
 
-MINIO_BASE = os.getenv("MINIO_BASE", "http://10.130.154.133:9000/pm-photos")
+MINIO_BASE = os.getenv("MINIO_BASE", "http://localhost:9000/pm-photos")
 PHOTO_MAX  = int(os.getenv("PHOTO_MAX_INDEX", "50"))
 GPS_RADIUS = int(os.getenv("GPS_RADIUS_METERS", "300"))
 DATE_TOL   = int(os.getenv("DATE_TOLERANCE_DAYS", "3"))

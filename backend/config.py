@@ -2,7 +2,7 @@ import os
 
 # External vLLM service (already running on the host server).
 # Override via .env — never hardcode elsewhere in the codebase.
-LLM_SERVER_URL   = os.getenv("LLM_SERVER_URL",  "http://10.130.154.133:8000/v1/chat/completions")
+LLM_SERVER_URL   = os.getenv("LLM_SERVER_URL",  "http://localhost:8000/v1/chat/completions")
 MODEL_NAME       = os.getenv("LLM_MODEL_NAME",  "./")
 LLM_TIMEOUT      = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 

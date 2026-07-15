@@ -1,6 +1,6 @@
 # PM Portal — Offline Server Deployment Guide
 
-Target server: **10.130.154.133** (offline / air-gapped Linux server with Docker, Docker Compose, and a running vLLM service on port 8000. Nothing else is installed.)
+Target server: **<PRODUCTION_SERVER>** (offline / air-gapped Linux server with Docker, Docker Compose, and a running vLLM service on port 8000. Nothing else is installed.)
 
 The stack consists of four containers plus the existing vLLM service:
 
@@ -13,7 +13,7 @@ The stack consists of four containers plus the existing vLLM service:
 | vLLM      | *(existing)*  | LLM inference — **not** managed by this compose    | 8000      |
 
 All traffic between containers uses the internal Docker network `pm-net`.
-The browser only needs `http://10.130.154.133` (port 80); nginx proxies
+The browser only needs `http://<PRODUCTION_SERVER>` (port 80); nginx proxies
 `/api`, `/extract`, `/job`, `/health`, `/audit`, `/stop-all` to the backend
 and `/pm-photos` to MinIO.
 
@@ -63,8 +63,8 @@ You need exactly two things on the server:
 
 ```bash
 # From the connected machine (replace <user>):
-scp pm-portal-images.tar <user>@10.130.154.133:/opt/
-scp -r PM_portal <user>@10.130.154.133:/opt/pm-portal
+scp pm-portal-images.tar <user>@<PRODUCTION_SERVER>:/opt/
+scp -r PM_portal <user>@<PRODUCTION_SERVER>:/opt/pm-portal
 ```
 
 Recommended directory layout on the server:
@@ -99,18 +99,18 @@ nano .env            # or vi
 
 `.env.example` documents every variable. The ones you **must** set:
 
-- `LLM_SERVER_URL=http://10.130.154.133:8000/v1/chat/completions` — your vLLM
+- `LLM_SERVER_URL=http://<PRODUCTION_SERVER>:8000/v1/chat/completions` — your vLLM
   endpoint (adjust the path if vLLM serves a different route). Used by both the
   backend (photo date/GPS metadata) and the worker (validation).
 - `LLM_MODEL_NAME` — the model name vLLM was started with
-  (check: `curl http://10.130.154.133:8000/v1/models`).
+  (check: `curl http://<PRODUCTION_SERVER>:8000/v1/models`).
 - `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` — **change these**; they are both the
   MinIO root credentials and the backend's access credentials.
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — the primary portal admin login.
 - `BACKUP_ADMIN_USERNAME` / `BACKUP_ADMIN_PASSWORD` *(recommended)* — seed a single
   **backup admin** so a locked-out primary admin can be recovered in-app (either
   admin can reset the other from the Users tab). Keep these separate and safe.
-- `ALLOWED_ORIGIN=http://10.130.154.133` — the URL users open in the browser.
+- `ALLOWED_ORIGIN=http://<PRODUCTION_SERVER>` — the URL users open in the browser.
 
 Useful optional knobs (sensible defaults already in `.env.example`):
 
@@ -143,18 +143,18 @@ after a server reboot** (as long as the Docker daemon is enabled:
 docker compose ps          # all services should be "running (healthy)"
 
 # Backend health (also reports vLLM availability):
-curl http://10.130.154.133:9700/health
+curl http://<PRODUCTION_SERVER>:9700/health
 # → {"status":"ok","llm":{"available":true,...}}
 
 # Frontend through nginx:
-curl -I http://10.130.154.133/            # → HTTP 200
-curl http://10.130.154.133/health         # proxied backend health
+curl -I http://<PRODUCTION_SERVER>/            # → HTTP 200
+curl http://<PRODUCTION_SERVER>/health         # proxied backend health
 
 # MinIO:
 docker compose exec minio mc ready local  # → "The cluster is ready"
 ```
 
-Then open `http://10.130.154.133` in a browser and log in with the admin
+Then open `http://<PRODUCTION_SERVER>` in a browser and log in with the admin
 account from `.env`.
 
 ## 6a. How processing works (server-side)
@@ -259,21 +259,21 @@ docker compose up -d
 
 | Symptom | Check / fix |
 |---|---|
-| `docker compose ps` shows backend unhealthy | `docker compose logs backend`. Most common: vLLM unreachable (test `curl http://10.130.154.133:8000/health` from the server) or MinIO credentials in `.env` changed after MinIO already initialized its volume. |
+| `docker compose ps` shows backend unhealthy | `docker compose logs backend`. Most common: vLLM unreachable (test `curl http://<PRODUCTION_SERVER>:8000/health` from the server) or MinIO credentials in `.env` changed after MinIO already initialized its volume. |
 | "LLM Offline" pill in the UI | vLLM is down or `LLM_SERVER_URL` is wrong. The backend probes `http://<llm-host>/health` every 30 s. |
 | MinIO loops with "invalid credentials" | The MinIO volume was initialized with old credentials. Either restore the old `MINIO_ACCESS_KEY/SECRET_KEY`, or wipe MinIO data: `docker compose down && docker volume rm pm-portal_minio-data && docker compose up -d` (deletes all photos). |
 | Uploads fail with 413 | File exceeds 50 MB (backend limit) / 100 MB (nginx limit). |
-| Port 80 already in use | Set `FRONTEND_PORT=8080` in `.env`, then `docker compose up -d`; access via `http://10.130.154.133:8080` and update `ALLOWED_ORIGIN` accordingly. |
+| Port 80 already in use | Set `FRONTEND_PORT=8080` in `.env`, then `docker compose up -d`; access via `http://<PRODUCTION_SERVER>:8080` and update `ALLOWED_ORIGIN` accordingly. |
 | Containers don't come back after reboot | `sudo systemctl enable --now docker`. The `unless-stopped` policy then restarts them. |
 | Need a shell inside a container | `docker compose exec backend sh` |
 | Files never finish processing | `docker compose logs -f worker-py`. Check it reached the backend (`WORKER_BACKEND_URL=http://backend:9700`) and that `LLM_SERVER_URL` is correct. A run stuck "running" with a dead worker is auto-requeued after `SERVER_RUN_STALE_SECONDS` (default 900s). |
 | Validation items error with `400` from the LLM | Too many full-size photos in one request. Keep `LLM_IMAGE_MAX_W=1000` (default) or lower it; do not set `0` unless vLLM has plenty of GPU headroom. |
 | Images fail to build offline | They must be built on the **connected** machine (`docker compose build`) and shipped in the tar; base images cannot be pulled on the air-gapped server. |
-| Photos don't load in reports | Photos exist only for PDFs processed via `/extract`. Verify objects: open MinIO console `http://10.130.154.133:9001` (login = MinIO credentials from `.env`), bucket `pm-photos`. |
+| Photos don't load in reports | Photos exist only for PDFs processed via `/extract`. Verify objects: open MinIO console `http://<PRODUCTION_SERVER>:9001` (login = MinIO credentials from `.env`), bucket `pm-photos`. |
 
 ### vLLM connectivity note
 
-The backend reaches vLLM at `http://10.130.154.133:8000` — the server's own
+The backend reaches vLLM at `http://<PRODUCTION_SERVER>:8000` — the server's own
 LAN IP — which works from inside containers because Docker's bridge network
 routes to the host. If vLLM ever listens only on `127.0.0.1`, reconfigure it
 to listen on `0.0.0.0` (or the LAN IP), otherwise containers cannot reach it.

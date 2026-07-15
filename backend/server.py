@@ -254,8 +254,7 @@ def background_maintenance():
 threading.Thread(target=background_maintenance, daemon=True).start()
 
 app = Flask(__name__)
-CORS(app)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024 
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 init_db()
 
 @app.errorhandler(413)

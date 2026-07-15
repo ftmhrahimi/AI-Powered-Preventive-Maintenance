@@ -14,7 +14,7 @@ This repository contains a Flask-based backend and a single-page HTML frontend f
 
 ## Getting Started
 
-> **Deploying to the offline production server (10.130.154.133)?**
+> **Deploying to the offline production server (`<PRODUCTION_SERVER>`)?**
 > Follow the step-by-step guide in [DEPLOYMENT.md](DEPLOYMENT.md). It covers
 > building images on a connected machine, transferring them with
 > `docker save`/`docker load`, configuration, backups, and troubleshooting.
